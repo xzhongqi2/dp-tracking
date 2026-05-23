@@ -1,0 +1,1613 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DDP 中美物流全程跟踪表</title>
+<style>
+:root {
+  --blue: #185FA5;
+  --blue-light: #E6F1FB;
+  --blue-mid: #D9E8F8;
+  --green: #1A7A3E;
+  --green-light: #E6F5EC;
+  --orange: #C06800;
+  --orange-light: #FFF3E0;
+  --red: #C0392B;
+  --red-light: #FCEBEB;
+  --gray: #888680;
+  --gray-light: #F5F5F3;
+  --border: #D5D5D0;
+  --text: #1A1A1A;
+  --text-muted: #666660;
+  --radius: 8px;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: 'PingFang SC', 'Microsoft YaHei', Arial, sans-serif; background: #F1F0EC; color: var(--text); font-size: 13px; }
+.app-header { background: var(--blue); color: white; padding: 16px 24px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; }
+.app-title { font-size: 18px; font-weight: 600; letter-spacing: 1px; }
+.app-subtitle { font-size: 12px; opacity: 0.85; margin-top: 2px; }
+.header-actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.sync-indicator { display: none; align-items: center; gap: 5px; font-size: 11px; padding: 3px 10px; border-radius: 20px; }
+.sync-indicator.show { display: inline-flex; }
+.sync-ok { background: rgba(255,255,255,0.2); color: white; border: 1px solid rgba(255,255,255,0.4); }
+.sync-loading { background: rgba(255,255,255,0.2); color: white; border: 1px solid rgba(255,255,255,0.4); }
+.sync-error { background: var(--red-light); color: var(--red); border: 1px solid #F09595; }
+.sync-offline { background: rgba(255,255,255,0.2); color: white; border: 1px solid rgba(255,255,255,0.4); }
+.sync-icon { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+.sync-ok .sync-icon { background: #97C459; }
+.sync-loading .sync-icon { background: white; animation: pulse 1s infinite; }
+.sync-error .sync-icon { background: var(--red); }
+.sync-offline .sync-icon { background: #F5D0A0; }
+.loading-overlay { display: none; position: fixed; inset: 0; background: rgba(241,240,236,0.92); z-index: 998; align-items: center; justify-content: center; flex-direction: column; gap: 16px; }
+.loading-overlay.show { display: flex; }
+.loading-spinner { width: 44px; height: 44px; border: 4px solid var(--blue-light); border-top-color: var(--blue); border-radius: 50%; animation: spin 0.7s linear infinite; }
+.loading-text { font-size: 14px; color: var(--blue); font-weight: 600; font-family: inherit; }
+@keyframes spin { to{transform:rotate(360deg)} }
+.btn { padding: 7px 16px; border-radius: var(--radius); border: none; cursor: pointer; font-size: 13px; font-family: inherit; transition: all 0.15s; }
+.btn-primary { background: white; color: var(--blue); font-weight: 600; }
+.btn-primary:hover { background: #E6F1FB; }
+.btn-outline { background: rgba(255,255,255,0.15); color: white; border: 1px solid rgba(255,255,255,0.4); }
+.btn-outline:hover { background: rgba(255,255,255,0.25); }
+
+.filter-bar { background: white; border-bottom: 1px solid var(--border); padding: 12px 24px; display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
+.filter-group { display: flex; align-items: center; gap: 6px; }
+.filter-label { font-size: 12px; color: var(--text-muted); white-space: nowrap; }
+select, input[type="text"] { padding: 5px 10px; border: 1px solid var(--border); border-radius: 6px; font-size: 13px; font-family: inherit; background: white; color: var(--text); }
+select:focus, input:focus { outline: 2px solid var(--blue-mid); border-color: var(--blue); }
+select { min-width: 120px; }
+input[type="text"] { min-width: 140px; }
+input[type="date"] { padding: 5px 8px; border: 1px solid var(--border); border-radius: 6px; font-size: 13px; font-family: inherit; background: white; color: var(--text); min-width: 130px; }
+input[type="date"]:focus { outline: 2px solid var(--blue-mid); border-color: var(--blue); }
+.filter-divider { width: 1px; background: var(--border); height: 22px; margin: 0 4px; }
+.date-range-wrap { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.date-range-sep { font-size: 12px; color: var(--text-muted); }
+.btn-filter-reset { padding: 5px 12px; border-radius: 6px; border: 1px solid var(--border); background: var(--gray-light); color: var(--text-muted); cursor: pointer; font-size: 12px; font-family: inherit; transition: all 0.15s; }
+.btn-filter-reset:hover { background: var(--red-light); color: var(--red); border-color: var(--red); }
+
+.badge-filter { display: flex; gap: 6px; flex-wrap: wrap; }
+.badge-btn { padding: 4px 12px; border-radius: 20px; border: 1.5px solid transparent; cursor: pointer; font-size: 12px; font-family: inherit; background: var(--gray-light); color: var(--text-muted); transition: all 0.15s; }
+.badge-btn.active { border-color: currentColor; font-weight: 600; }
+.badge-btn[data-status="all"].active { background: var(--blue); color: white; border-color: var(--blue); }
+.badge-btn[data-status="pending"].active { background: var(--orange-light); color: var(--orange); border-color: var(--orange); }
+.badge-btn[data-status="delayed"].active { background: var(--red-light); color: var(--red); border-color: var(--red); }
+.badge-btn[data-status="delivered"].active { background: var(--green-light); color: var(--green); border-color: var(--green); }
+
+.main-content { padding: 16px 24px; }
+
+.stats-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; margin-bottom: 16px; }
+.stat-card { background: white; border-radius: var(--radius); border: 1px solid var(--border); padding: 14px 16px; }
+.stat-label { font-size: 11px; color: var(--text-muted); margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.5px; }
+.stat-value { font-size: 28px; font-weight: 700; color: var(--text); line-height: 1; }
+.stat-value.blue { color: var(--blue); }
+.stat-value.orange { color: var(--orange); }
+.stat-value.red { color: var(--red); }
+.stat-value.green { color: var(--green); }
+.stat-sub { font-size: 11px; color: var(--text-muted); margin-top: 4px; }
+
+.table-section { background: white; border-radius: var(--radius); border: 1px solid var(--border); overflow: hidden; }
+.table-header-bar { padding: 12px 16px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
+.table-title { font-size: 14px; font-weight: 600; color: var(--text); }
+.table-count { font-size: 12px; color: var(--text-muted); }
+
+.table-scroll { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; min-width: 1600px; }
+
+thead th { background: var(--blue); color: white; padding: 10px 8px; font-size: 12px; font-weight: 600; text-align: center; white-space: nowrap; position: sticky; top: 0; z-index: 2; }
+thead th:first-child { text-align: left; padding-left: 14px; }
+thead th.row-group { background: #144C85; }
+tbody tr { border-bottom: 1px solid #EBEBE6; transition: background 0.1s; }
+tbody tr:hover { background: var(--blue-light); }
+tbody tr:last-child { border-bottom: none; }
+
+td { padding: 8px 6px; vertical-align: middle; font-size: 12px; color: var(--text); }
+td:first-child { padding-left: 14px; }
+.cell-center { text-align: center; }
+.cell-right { text-align: right; }
+
+/* 基本信息列 */
+.col-basic { min-width: 120px; }
+.col-shipper { min-width: 140px; }
+.col-consignee { min-width: 130px; }
+.col-port { min-width: 100px; }
+.col-goods { min-width: 120px; }
+
+/* 节点样式 */
+.col-node { min-width: 82px; text-align: center !important; }
+.node-wrap { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+.node-status { display: inline-flex; align-items: center; gap: 3px; padding: 3px 7px; border-radius: 20px; font-size: 11px; font-weight: 600; white-space: nowrap; border: 1.5px solid transparent; }
+.node-date { font-size: 10px; color: var(--text-muted); margin-top: 1px; }
+
+.status-done { background: var(--green-light); color: var(--green); border-color: #A8D5B8; }
+.status-done::before { content: ''; width: 6px; height: 6px; background: var(--green); border-radius: 50%; display: inline-block; }
+.status-progress { background: var(--blue-light); color: var(--blue); border-color: #B5D4F4; }
+.status-progress::before { content: ''; width: 6px; height: 6px; background: var(--blue); border-radius: 50%; display: inline-block; animation: pulse 1.5s infinite; }
+.status-pending { background: var(--gray-light); color: var(--gray); border-color: #D0D0CA; }
+.status-pending::before { content: ''; width: 6px; height: 6px; background: var(--gray); border-radius: 50%; display: inline-block; }
+.status-delayed { background: var(--red-light); color: var(--red); border-color: #F5B8B8; }
+.status-delayed::before { content: ''; width: 6px; height: 6px; background: var(--red); border-radius: 50%; display: inline-block; }
+.status-exception { background: var(--orange-light); color: var(--orange); border-color: #F5D0A0; }
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+/* 总体状态 */
+.overall-badge { display: inline-flex; padding: 3px 10px; border-radius: 20px; font-size: 11px; font-weight: 600; }
+.overall-delivered { background: var(--green-light); color: var(--green); }
+.overall-in-transit { background: var(--blue-light); color: var(--blue); }
+.overall-pending { background: var(--orange-light); color: var(--orange); }
+.overall-delayed { background: var(--red-light); color: var(--red); }
+
+/* 货物件数等 */
+.num { font-weight: 600; font-size: 12px; }
+
+/* 操作按钮 */
+.action-btns { display: flex; gap: 4px; justify-content: center; }
+.action-btn { padding: 4px 10px; border-radius: 5px; border: 1px solid var(--border); background: white; cursor: pointer; font-size: 11px; font-family: inherit; color: var(--text-muted); transition: all 0.1s; }
+.action-btn:hover { background: var(--blue-light); color: var(--blue); border-color: var(--blue); }
+
+/* Modal */
+.modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.45); z-index: 100; align-items: center; justify-content: center; padding: 20px; }
+.modal-overlay.active { display: flex; }
+.modal { background: white; border-radius: 12px; width: 100%; max-width: 900px; max-height: 90vh; overflow-y: auto; box-shadow: 0 20px 60px rgba(0,0,0,0.2); }
+.modal-header { padding: 16px 20px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; background: var(--blue); color: white; border-radius: 12px 12px 0 0; }
+.modal-title { font-size: 15px; font-weight: 600; }
+.modal-close { background: rgba(255,255,255,0.2); border: none; color: white; width: 28px; height: 28px; border-radius: 50%; cursor: pointer; font-size: 16px; display: flex; align-items: center; justify-content: center; }
+.modal-close:hover { background: rgba(255,255,255,0.35); }
+.modal-body { padding: 20px; }
+
+.form-section { margin-bottom: 20px; }
+.form-section-title { font-size: 13px; font-weight: 600; color: var(--blue); margin-bottom: 10px; padding-bottom: 6px; border-bottom: 1px solid var(--blue-mid); }
+.form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; }
+.form-group { display: flex; flex-direction: column; gap: 4px; }
+.form-label { font-size: 11px; color: var(--text-muted); font-weight: 500; }
+.form-control { padding: 6px 10px; border: 1px solid var(--border); border-radius: 6px; font-size: 13px; font-family: inherit; }
+.form-control:focus { outline: 2px solid var(--blue-mid); border-color: var(--blue); }
+textarea.form-control { resize: vertical; min-height: 60px; }
+
+.form-row { display: flex; gap: 8px; align-items: flex-end; flex-wrap: wrap; }
+.form-row .form-group { flex: 1; min-width: 140px; }
+
+/* 节点编辑 */
+.node-edit-row { display: grid; grid-template-columns: 180px 1fr 120px 100px; gap: 8px; align-items: center; padding: 6px 0; border-bottom: 1px dashed var(--border); }
+.node-edit-row:last-child { border-bottom: none; }
+.node-label-cell { font-size: 12px; font-weight: 600; color: var(--text); }
+.node-label-en { font-size: 10px; color: var(--text-muted); font-weight: 400; }
+select.node-select, input.node-date { padding: 5px 8px; border: 1px solid var(--border); border-radius: 6px; font-size: 12px; font-family: inherit; width: 100%; }
+select.node-select:focus, input.node-date:focus { outline: 2px solid var(--blue-mid); border-color: var(--blue); }
+
+.modal-footer { padding: 14px 20px; border-top: 1px solid var(--border); display: flex; justify-content: flex-end; gap: 8px; background: #FAFAF8; border-radius: 0 0 12px 12px; }
+.btn-save { background: var(--blue); color: white; font-weight: 600; }
+.btn-save:hover { background: #144C85; }
+.btn-cancel { background: white; color: var(--text-muted); border: 1px solid var(--border); }
+.btn-cancel:hover { background: var(--gray-light); }
+
+/* 说明 */
+.legend { display: flex; gap: 14px; flex-wrap: wrap; padding: 10px 16px; background: #FAFAF8; border-top: 1px solid var(--border); font-size: 11px; color: var(--text-muted); }
+.legend-item { display: flex; align-items: center; gap: 5px; }
+
+/* 部门标签 */
+.dept-tag { display: inline-block; padding: 1px 6px; border-radius: 3px; font-size: 10px; font-weight: 600; background: var(--blue-mid); color: var(--blue); }
+
+/* ===== 登录页 ===== */
+.login-overlay { display: flex; position: fixed; inset: 0; background: linear-gradient(135deg, #0D3B6E 0%, #185FA5 50%, #1A6B8A 100%); z-index: 9999; align-items: center; justify-content: center; }
+.login-overlay.hide { display: none; }
+.login-box { background: white; border-radius: 16px; padding: 40px 36px; width: 100%; max-width: 380px; box-shadow: 0 24px 80px rgba(0,0,0,0.3); text-align: center; }
+.login-logo { font-size: 32px; margin-bottom: 6px; }
+.login-title { font-size: 20px; font-weight: 700; color: var(--blue); margin-bottom: 4px; }
+.login-sub { font-size: 12px; color: var(--text-muted); margin-bottom: 28px; }
+.login-form { display: flex; flex-direction: column; gap: 14px; }
+.login-input-wrap { position: relative; }
+.login-input-icon { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); font-size: 16px; }
+.login-input { width: 100%; padding: 10px 12px 10px 38px; border: 1.5px solid var(--border); border-radius: 8px; font-size: 14px; font-family: inherit; color: var(--text); transition: border-color 0.15s; box-sizing: border-box; }
+.login-input:focus { outline: none; border-color: var(--blue); box-shadow: 0 0 0 3px rgba(24,95,165,0.1); }
+.login-btn { padding: 11px; background: var(--blue); color: white; border: none; border-radius: 8px; font-size: 15px; font-weight: 600; font-family: inherit; cursor: pointer; transition: background 0.15s; }
+.login-btn:hover { background: #144C85; }
+.login-error { color: var(--red); font-size: 12px; text-align: left; display: none; padding: 6px 2px; }
+.login-error.show { display: block; }
+.login-link { font-size: 12px; color: var(--blue); cursor: pointer; margin-top: 8px; text-decoration: underline; }
+.login-link:hover { color: #144C85; }
+
+/* ===== 用户管理 ===== */
+.admin-badge { display: inline-block; padding: 1px 6px; border-radius: 3px; font-size: 10px; background: #F0C040; color: #7A5000; font-weight: 700; }
+.user-badge { display: inline-block; padding: 1px 6px; border-radius: 3px; font-size: 10px; background: var(--blue-mid); color: var(--blue); font-weight: 600; }
+.user-list { display: flex; flex-direction: column; gap: 8px; max-height: 280px; overflow-y: auto; }
+.user-item { display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; background: var(--gray-light); border-radius: 8px; }
+.user-info { display: flex; align-items: center; gap: 8px; }
+.user-name { font-weight: 600; font-size: 13px; color: var(--text); }
+.user-actions { display: flex; gap: 6px; }
+.icon-btn { width: 28px; height: 28px; border-radius: 6px; border: 1px solid var(--border); background: white; cursor: pointer; font-size: 13px; display: flex; align-items: center; justify-content: center; transition: all 0.15s; }
+.icon-btn:hover { background: var(--blue-light); border-color: var(--blue); }
+.icon-btn.danger:hover { background: var(--red-light); border-color: var(--red); }
+.add-user-row { display: flex; gap: 8px; margin-top: 10px; }
+.add-user-row input { flex: 1; padding: 7px 10px; border: 1px solid var(--border); border-radius: 6px; font-size: 13px; font-family: inherit; }
+.add-user-row input:focus { outline: 2px solid var(--blue-mid); border-color: var(--blue); }
+.add-user-row select { padding: 7px 10px; border: 1px solid var(--border); border-radius: 6px; font-size: 13px; font-family: inherit; background: white; }
+.add-user-btn { padding: 7px 14px; background: var(--blue); color: white; border: none; border-radius: 6px; font-size: 13px; font-family: inherit; cursor: pointer; font-weight: 600; white-space: nowrap; }
+.add-user-btn:hover { background: #144C85; }
+
+@media (max-width: 768px) {
+  .stats-row { grid-template-columns: repeat(2, 1fr); }
+  .filter-bar { padding: 10px 12px; }
+  .main-content { padding: 12px; }
+}
+</style>
+</head>
+<body>
+
+<!-- ===== 头部 ===== -->
+<div class="app-header">
+  <div>
+    <div class="app-title">DDP 中美物流全程跟踪表</div>
+    <div class="app-subtitle">星链智运科技物流 · 全链路协同追踪平台 · 更新于 <span id="update-time"></span></div>
+  </div>
+  <div class="header-actions">
+    <span id="sync-indicator" class="sync-indicator">
+      <span class="sync-icon"></span>
+      <span id="sync-text">同步中</span>
+    </span>
+    <span id="user-info-bar" style="font-size:12px;opacity:0.85;display:none;"></span>
+    <button class="btn btn-outline" id="btn-user-manage" onclick="openUserModal()" style="display:none;">👥 用户管理</button>
+    <button class="btn btn-outline" onclick="performLogout()">🔓 退出</button>
+    <button class="btn btn-outline" onclick="exportTable()">📥 导出表格</button>
+    <button class="btn btn-primary" onclick="openAddModal()">+ 新增柜子</button>
+  </div>
+</div>
+
+<!-- Loading overlay -->
+<div class="loading-overlay" id="loading-overlay">
+  <div class="loading-spinner"></div>
+  <div class="loading-text" id="loading-text">正在加载数据...</div>
+</div>
+
+<!-- ===== 筛选栏 ===== -->
+<div class="filter-bar">
+  <div class="filter-group">
+    <span class="filter-label">Shipper</span>
+    <select id="filter-shipper"><option value="">全部</option></select>
+  </div>
+  <div class="filter-group">
+    <span class="filter-label">起运港</span>
+    <select id="filter-origin"><option value="">全部</option></select>
+  </div>
+  <div class="filter-group">
+    <span class="filter-label">目的港</span>
+    <select id="filter-dest"><option value="">全部</option></select>
+  </div>
+  <div class="filter-group">
+    <span class="filter-label">部门</span>
+    <select id="filter-dept"><option value="">全部</option></select>
+  </div>
+  <div class="filter-group">
+    <span class="filter-label">柜号</span>
+    <input type="text" id="filter-container" placeholder="搜索柜号...">
+  </div>
+  <div class="filter-group">
+    <span class="filter-label">订舱号</span>
+    <input type="text" id="filter-booking" placeholder="搜索订舱号...">
+  </div>
+  <div class="filter-divider"></div>
+  <div class="filter-group">
+    <span class="filter-label">时间字段</span>
+    <select id="filter-date-field">
+      <option value="booking_date">订舱日期</option>
+      <option value="sailing_date">装船日期</option>
+      <option value="arrival_date">到港日期</option>
+      <option value="pod_date">签收日期</option>
+    </select>
+  </div>
+  <div class="filter-group">
+    <span class="filter-label">时间段</span>
+    <div class="date-range-wrap">
+      <input type="date" id="filter-date-start" title="开始日期">
+      <span class="date-range-sep">至</span>
+      <input type="date" id="filter-date-end" title="结束日期">
+    </div>
+  </div>
+  <button class="btn-filter-reset" onclick="resetDateFilter()" title="清除时间段筛选">✕ 重置日期</button>
+  <div class="badge-filter">
+    <button class="badge-btn active" data-status="all" onclick="filterStatus('all')">全部</button>
+    <button class="badge-btn" data-status="in-transit" onclick="filterStatus('in-transit')">运输中</button>
+    <button class="badge-btn" data-status="delivered" onclick="filterStatus('delivered')">已签收</button>
+    <button class="badge-btn" data-status="pending" onclick="filterStatus('pending')">待发货</button>
+    <button class="badge-btn" data-status="delayed" onclick="filterStatus('delayed')">异常/延误</button>
+  </div>
+</div>
+
+<!-- ===== 统计卡片 ===== -->
+<div class="main-content">
+  <div class="stats-row">
+    <div class="stat-card">
+      <div class="stat-label">全部柜子</div>
+      <div class="stat-value blue" id="stat-total">0</div>
+      <div class="stat-sub">当前在途</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">待发货</div>
+      <div class="stat-value orange" id="stat-pending">0</div>
+      <div class="stat-sub">未装船</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">运输中</div>
+      <div class="stat-value blue" id="stat-transit">0</div>
+      <div class="stat-sub">海运途中</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">已签收</div>
+      <div class="stat-value green" id="stat-delivered">0</div>
+      <div class="stat-sub">完成交付</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">异常/延误</div>
+      <div class="stat-value red" id="stat-delayed">0</div>
+      <div class="stat-sub">需关注</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">总体完成率</div>
+      <div class="stat-value" id="stat-progress">0%</div>
+      <div class="stat-sub">已签收占比</div>
+    </div>
+  </div>
+
+  <!-- ===== 主表格 ===== -->
+  <div class="table-section">
+    <div class="table-header-bar">
+      <div class="table-title">📦 柜子跟踪明细</div>
+      <div class="table-count">共 <span id="table-count">0</span> 条记录</div>
+    </div>
+    <div class="table-scroll">
+      <table id="tracking-table">
+        <thead>
+          <tr>
+            <th colspan="7" class="row-group">基本信息</th>
+            <th colspan="3" class="row-group">出货工厂信息</th>
+            <th colspan="2" class="row-group">货物信息</th>
+            <th colspan="2" class="row-group">起运</th>
+            <th colspan="2" class="row-group">目的港</th>
+            <th colspan="4" class="row-group">订舱 & 提箱</th>
+            <th colspan="4" class="row-group">出口清关 & 装船</th>
+            <th colspan="4" class="row-group">海运</th>
+            <th colspan="4" class="row-group">目的港清关</th>
+            <th colspan="4" class="row-group">派送</th>
+            <th rowspan="2" class="row-group">跟进部门</th>
+            <th rowspan="2" class="row-group">操作</th>
+          </tr>
+          <tr>
+            <th>订舱号</th>
+            <th>柜号</th>
+            <th>封条号</th>
+            <th>临柜号</th>
+            <th>Shipper 发货人</th>
+            <th>Consignee 收货人</th>
+            <th>总体状态</th>
+            <th>出货工厂名</th>
+            <th>装货地址</th>
+            <th>工厂联系人</th>
+            <th>品名 / 件数</th>
+            <th>体积 / 重量</th>
+            <th>起运港</th>
+            <th>起运日期</th>
+            <th>目的港</th>
+            <th>目的城市</th>
+            <th>订舱确认</th>
+            <th>拖车提柜</th>
+            <th>装柜完成</th>
+            <th>进港</th>
+            <th>出口报关</th>
+            <th>报关放行</th>
+            <th>装船</th>
+            <th>离港 ETA</th>
+            <th>海运跟踪</th>
+            <th>到港</th>
+            <th>到港时间</th>
+            <th>进口清关</th>
+            <th>清关完成</th>
+            <th>提柜</th>
+            <th>派送到门</th>
+            <th>签收 POD</th>
+          </tr>
+        </thead>
+        <tbody id="table-body"></tbody>
+      </table>
+    </div>
+    <div class="legend">
+      <div class="legend-item"><span class="status-done">完成</span></div>
+      <div class="legend-item"><span class="status-progress">进行中</span></div>
+      <div class="legend-item"><span class="status-pending">待处理</span></div>
+      <div class="legend-item"><span class="status-delayed">延误</span></div>
+      <div class="legend-item"><span class="status-exception">异常</span></div>
+      <div style="margin-left:auto; font-size:10px;" id="data-source-note">数据存储于本地浏览器</div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== 新增/编辑弹窗 ===== -->
+<div class="modal-overlay" id="edit-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title" id="modal-title">新增柜子</div>
+      <button class="modal-close" onclick="closeModal()">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-section">
+        <div class="form-section-title">基本信息</div>
+        <div class="form-grid">
+          <div class="form-group"><label class="form-label">订舱号 *</label><input class="form-control" id="f-booking" placeholder="如：SZC20240501"></div>
+          <div class="form-group"><label class="form-label">柜号 *</label><input class="form-control" id="f-container" placeholder="如：MSCU1234567"></div>
+          <div class="form-group"><label class="form-label">封条号</label><input class="form-control" id="f-seal" placeholder="如：SL123456"></div>
+          <div class="form-group"><label class="form-label">临柜号</label><input class="form-control" id="f-temp-container" placeholder="如：临柜C2024-001"></div>
+          <div class="form-group"><label class="form-label">跟进部门</label>
+            <select class="form-control" id="f-dept">
+              <option value="操作部">操作部</option>
+              <option value="报关部">报关部</option>
+              <option value="客服部">客服部</option>
+              <option value="财务部">财务部</option>
+              <option value="销售部">销售部</option>
+            </select>
+          </div>
+        </div>
+      </div>
+      <div class="form-section">
+        <div class="form-section-title">Shipper / Consignee</div>        <div class="form-grid">
+          <div class="form-group"><label class="form-label">Shipper 发货人 *</label><input class="form-control" id="f-shipper" placeholder="发货公司名称"></div>
+          <div class="form-group"><label class="form-label">Shipper 地址</label><input class="form-control" id="f-shipper-addr" placeholder="发货地址"></div>
+          <div class="form-group"><label class="form-label">Consignee 收货人 *</label><input class="form-control" id="f-consignee" placeholder="收货公司名称"></div>
+          <div class="form-group"><label class="form-label">Consignee 地址</label><input class="form-control" id="f-consignee-addr" placeholder="美国收货地址"></div>
+        </div>
+      </div>
+      <div class="form-section">
+        <div class="form-section-title">出货工厂信息</div>
+        <div class="form-grid">
+          <div class="form-group"><label class="form-label">工厂名称</label><input class="form-control" id="f-factory-name" placeholder="如：XX电子制造有限公司"></div>
+          <div class="form-group"><label class="form-label">装货地址</label><input class="form-control" id="f-factory-addr" placeholder="工厂装货详细地址"></div>
+          <div class="form-group"><label class="form-label">工厂联系人</label><input class="form-control" id="f-factory-contact" placeholder="联系人姓名及电话"></div>
+        </div>
+      </div>
+      <div class="form-section">
+        <div class="form-section-title">港口 & 起运信息</div>
+        <div class="form-grid">
+          <div class="form-group"><label class="form-label">起运港 *</label>
+            <select class="form-control" id="f-origin-port">
+              <option value="">请选择</option>
+              <option value="深圳盐田">深圳盐田 Yantian</option>
+              <option value="深圳蛇口">深圳蛇口 Shekou</option>
+              <option value="广州南沙">广州南沙 Nansha</option>
+              <option value="上海">上海 Shanghai</option>
+              <option value="宁波">宁波 Ningbo</option>
+              <option value="厦门">厦门 Xiamen</option>
+              <option value="青岛">青岛 Qingdao</option>
+              <option value="大连">大连 Dalian</option>
+            </select>
+          </div>
+          <div class="form-group"><label class="form-label">目的港 *</label>
+            <select class="form-control" id="f-dest-port">
+              <option value="">请选择</option>
+              <option value="洛杉矶">洛杉矶 Los Angeles</option>
+              <option value="长滩">长滩 Long Beach</option>
+              <option value="纽约">纽约 New York</option>
+              <option value="奥克兰">奥克兰 Oakland</option>
+              <option value="西雅图">西雅图 Seattle</option>
+              <option value="休斯顿">休斯顿 Houston</option>
+              <option value="萨凡纳">萨凡纳 Savannah</option>
+            </select>
+          </div>
+          <div class="form-group"><label class="form-label">目的城市</label><input class="form-control" id="f-dest-city" placeholder="如：Los Angeles, CA"></div>
+          <div class="form-group"><label class="form-label">目的仓库地址</label><input class="form-control" id="f-dest-addr" placeholder="美国仓库详细地址"></div>
+        </div>
+      </div>
+      <div class="form-section">
+        <div class="form-section-title">货物信息</div>
+        <div class="form-grid">
+          <div class="form-group"><label class="form-label">品名描述</label><input class="form-control" id="f-goods" placeholder="货物品名"></div>
+          <div class="form-group"><label class="form-label">件数 (CTNS)</label><input class="form-control" id="f-ctns" placeholder="如：200" type="number"></div>
+          <div class="form-group"><label class="form-label">体积 (CBM)</label><input class="form-control" id="f-volume" placeholder="如：12.5" type="number"></div>
+          <div class="form-group"><label class="form-label">重量 (KG)</label><input class="form-control" id="f-weight" placeholder="如：3500" type="number"></div>
+        </div>
+      </div>
+      <div class="form-section">
+        <div class="form-section-title">全程节点状态编辑</div>
+        <div class="node-edit-row" style="font-weight:600; color:var(--blue); font-size:12px; border-bottom:2px solid var(--blue-mid);">
+          <div>节点名称</div><div>状态</div><div>完成日期</div><div>备注</div>
+        </div>
+        <div id="node-edit-container"></div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-cancel" onclick="closeModal()">取消</button>
+      <button class="btn btn-save" onclick="saveRecord()">保存</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ===== 认证系统 =====
+const AUTH_KEY = 'ddp_auth_v1';
+const USERS_KEY = 'ddp_users_v1';
+
+function getUsers() {
+  return JSON.parse(localStorage.getItem(USERS_KEY) || 'null') || [];
+}
+
+function saveUsers(users) {
+  localStorage.setItem(USERS_KEY, JSON.stringify(users));
+}
+
+function getSession() {
+  return JSON.parse(localStorage.getItem(AUTH_KEY) || 'null');
+}
+
+function setSession(user) {
+  localStorage.setItem(AUTH_KEY, JSON.stringify({ username: user.username, role: user.role, loginAt: new Date().toISOString() }));
+}
+
+function clearSession() {
+  localStorage.removeItem(AUTH_KEY);
+}
+
+function simpleHash(str) {
+  // 简单哈希，防止明文存储密码（仅示意，实际部署建议后端）
+  let h = 0;
+  for (let i = 0; i < str.length; i++) {
+    h = ((h << 5) - h) + str.charCodeAt(i);
+    h = h & h;
+  }
+  return 'h' + Math.abs(h).toString(36);
+}
+
+function showLoginScreen() {
+  document.getElementById('login-screen').classList.remove('hide');
+  document.getElementById('login-form').style.display = 'flex';
+  document.getElementById('login-form').style.flexDirection = 'column';
+  document.getElementById('login-form').style.gap = '14px';
+  document.getElementById('setup-panel').style.display = 'none';
+  document.getElementById('login-error-msg').classList.remove('show');
+  document.getElementById('login-password').value = '';
+  document.getElementById('login-username').value = '';
+  document.getElementById('login-username').focus();
+  // 预填充已保存的API地址
+  const savedApi = localStorage.getItem('ddp_api_base') || '';
+  if (document.getElementById('login-api-url')) document.getElementById('login-api-url').value = savedApi;
+  // 始终显示设置入口
+  document.getElementById('login-setup-link').style.display = 'block';
+}
+
+function showSetupPanel(forceReset) {
+  const users = getUsers();
+  if (users.length > 0 && !forceReset) {
+    // 已有用户：提示确认是否重置
+    if (!confirm('检测到已有用户数据。点击"确定"将清空所有用户并重新设置管理员账号（数据不受影响）。')) {
+      return;
+    }
+  }
+  // 清空所有认证数据
+  clearSession();
+  saveUsers([]);
+  document.getElementById('login-form').style.display = 'none';
+  document.getElementById('setup-panel').style.display = 'block';
+  document.getElementById('setup-username').value = '';
+  document.getElementById('setup-password').value = '';
+  document.getElementById('setup-password2').value = '';
+  document.getElementById('setup-error-msg').classList.remove('show');
+  document.getElementById('setup-error-msg').textContent = '';
+  // 预填充已保存的API地址
+  const savedApi = localStorage.getItem('ddp_api_base') || '';
+  if (document.getElementById('setup-api-url')) document.getElementById('setup-api-url').value = savedApi;
+  document.getElementById('setup-username').focus();
+}
+
+function showLoginPanel() {
+  document.getElementById('setup-panel').style.display = 'none';
+  document.getElementById('login-form').style.display = 'flex';
+  showLoginScreen();
+}
+
+function performSetup() {
+  const username = document.getElementById('setup-username').value.trim();
+  const password = document.getElementById('setup-password').value;
+  const password2 = document.getElementById('setup-password2').value;
+  const err = document.getElementById('setup-error-msg');
+
+  if (!username) { err.textContent = '用户名不能为空'; err.classList.add('show'); return; }
+  if (password.length < 4) { err.textContent = '密码至少4位'; err.classList.add('show'); return; }
+  if (password !== password2) { err.textContent = '两次密码不一致'; err.classList.add('show'); return; }
+
+  const users = getUsers();
+  if (users.find(u => u.username === username)) { err.textContent = '用户名已存在'; err.classList.add('show'); return; }
+
+  users.push({ username, passwordHash: simpleHash(password), role: 'admin' });
+  saveUsers(users);
+
+  // 保存 API 地址（如有）
+  const apiUrl = document.getElementById('setup-api-url')?.value?.trim();
+  const clearApi = document.getElementById('setup-clear-api')?.checked;
+  if (clearApi) {
+    localStorage.removeItem('ddp_api_base');
+  } else if (apiUrl) {
+    localStorage.setItem('ddp_api_base', apiUrl);
+  }
+
+  setSession({ username, role: 'admin' });
+  document.getElementById('login-screen').classList.add('hide');
+  bootApp();
+}
+
+function performLogin() {
+  const username = document.getElementById('login-username').value.trim();
+  const password = document.getElementById('login-password').value;
+  const err = document.getElementById('login-error-msg');
+
+  if (!username || !password) { err.textContent = '请输入用户名和密码'; err.classList.add('show'); return; }
+
+  // 保存/更新 API 地址（如填入）
+  const apiUrl = document.getElementById('login-api-url')?.value?.trim();
+  if (apiUrl) localStorage.setItem('ddp_api_base', apiUrl);
+
+  const users = getUsers();
+  const user = users.find(u => u.username === username && u.passwordHash === simpleHash(password));
+  if (!user) { err.textContent = '用户名或密码错误'; err.classList.add('show'); return; }
+
+  setSession(user);
+  document.getElementById('login-screen').classList.add('hide');
+  bootApp();
+}
+
+function performLogout() {
+  clearSession();
+  showLoginScreen();
+}
+
+// 回车登录
+document.addEventListener('DOMContentLoaded', function() {
+  document.getElementById('login-password')?.addEventListener('keypress', function(e) { if (e.key === 'Enter') performLogin(); });
+  document.getElementById('login-username')?.addEventListener('keypress', function(e) { if (e.key === 'Enter') performLogin(); });
+  document.getElementById('setup-password2')?.addEventListener('keypress', function(e) { if (e.key === 'Enter') performSetup(); });
+});
+
+// ===== 数据结构 =====
+const NODES = [
+  { id: 'booking', label: '订舱确认', en: 'Booking Confirmed' },
+  { id: 'truck_pickup', label: '拖车提柜', en: 'Container Pickup' },
+  { id: 'stuffing', label: '装柜完成', en: 'Stuffing Complete' },
+  { id: 'cy_entry', label: '进港', en: 'CY Entry' },
+  { id: 'exp_customs', label: '出口报关', en: 'Export Customs' },
+  { id: 'exp_clearance', label: '报关放行', en: 'Customs Cleared' },
+  { id: 'sailing', label: '装船', en: 'Loaded on Vessel' },
+  { id: 'eta', label: '离港/ETA', en: 'Departure / ETA' },
+  { id: 'ocean_track', label: '海运跟踪', en: 'Ocean Tracking' },
+  { id: 'arrival', label: '到港', en: 'Arrival' },
+  { id: 'arrival_date', label: '到港时间', en: 'Arrival Date' },
+  { id: 'imp_customs', label: '进口清关', en: 'Import Customs' },
+  { id: 'imp_clearance', label: '清关完成', en: 'Cleared' },
+  { id: 'dray', label: '提柜', en: 'Dray / Delivery' },
+  { id: 'delivery', label: '派送到门', en: 'Final Delivery' },
+  { id: 'pod', label: '签收 POD', en: 'Proof of Delivery' },
+];
+
+const STATUS_OPTIONS = [
+  { value: 'pending', label: '待处理' },
+  { value: 'progress', label: '进行中' },
+  { value: 'done', label: '已完成' },
+  { value: 'delayed', label: '延误' },
+  { value: 'exception', label: '异常' },
+];
+
+const STATUS_LABEL = {
+  pending: '待处理', progress: '进行中', done: '已完成', delayed: '延误', exception: '异常'
+};
+
+const STATUS_CLASS = {
+  pending: 'status-pending',
+  progress: 'status-progress',
+  done: 'status-done',
+  delayed: 'status-delayed',
+  exception: 'status-exception',
+};
+
+// ===== 示例数据 =====
+function genId() { return Date.now().toString(36) + Math.random().toString(36).substr(2, 5); }
+
+const sampleData = [
+  {
+    id: genId(),
+    booking: 'SZ-YT-20250508-001',
+    container: 'MSCU8765432',
+    seal: 'SL20250501',
+    tempContainer: 'TMP-YT-2025-0501',
+    shipper: '深圳市星链智运科技有限公司',
+    shipperAddr: '深圳市南山区科技园',
+    consignee: 'ABC IMPORT CORP',
+    consigneeAddr: '123 Commerce St, Los Angeles, CA 90001',
+    factoryName: '深圳市金鑫电子厂',
+    factoryAddr: '深圳市龙华区大浪街道金鑫工业园A栋',
+    factoryContact: '李经理 138-0755-0001',
+    originPort: '深圳盐田',
+    destPort: '洛杉矶',
+    destCity: 'Los Angeles, CA',
+    destAddr: '456 Logistics Blvd, LA, CA',
+    goods: '电子配件 / Electronic Components',
+    ctns: '240',
+    volume: '14.5',
+    weight: '4200',
+    dept: '操作部',
+    nodes: {
+      booking: { status: 'done', date: '2025-05-08', note: '已确认舱位' },
+      truck_pickup: { status: 'done', date: '2025-05-10', note: '' },
+      stuffing: { status: 'done', date: '2025-05-10', note: '装柜完成' },
+      cy_entry: { status: 'done', date: '2025-05-11', note: '' },
+      exp_customs: { status: 'done', date: '2025-05-11', note: '' },
+      exp_clearance: { status: 'done', date: '2025-05-11', note: '放行' },
+      sailing: { status: 'done', date: '2025-05-12', note: '' },
+      eta: { status: 'progress', date: '', note: 'ETA: 2025-05-28' },
+      ocean_track: { status: 'progress', date: '', note: '航行中' },
+      arrival: { status: 'pending', date: '', note: '' },
+      arrival_date: { status: 'pending', date: '', note: '' },
+      imp_customs: { status: 'pending', date: '', note: '' },
+      imp_clearance: { status: 'pending', date: '', note: '' },
+      dray: { status: 'pending', date: '', note: '' },
+      delivery: { status: 'pending', date: '', note: '' },
+      pod: { status: 'pending', date: '', note: '' },
+    }
+  },
+  {
+    id: genId(),
+    booking: 'SZ-YT-20250505-002',
+    container: 'CMAU2345678',
+    seal: 'SL20250502',
+    tempContainer: 'TMP-YT-2025-0502',
+    shipper: '深圳市星链智运科技有限公司',
+    shipperAddr: '深圳市南山区科技园',
+    consignee: 'XYZ TRADING LLC',
+    consigneeAddr: '789 Harbor Dr, New York, NY 10001',
+    factoryName: '东莞华昌玩具厂',
+    factoryAddr: '东莞市长安镇乌沙社区振安路22号',
+    factoryContact: '王主管 139-0769-1234',
+    originPort: '深圳盐田',
+    destPort: '纽约',
+    destCity: 'New York, NY',
+    destAddr: '789 Harbor Dr, NY, NY 10001',
+    goods: '家居用品 / Home Goods',
+    ctns: '380',
+    volume: '22.0',
+    weight: '6800',
+    dept: '报关部',
+    nodes: {
+      booking: { status: 'done', date: '2025-05-05', note: '' },
+      truck_pickup: { status: 'done', date: '2025-05-06', note: '' },
+      stuffing: { status: 'done', date: '2025-05-07', note: '' },
+      cy_entry: { status: 'done', date: '2025-05-08', note: '' },
+      exp_customs: { status: 'done', date: '2025-05-08', note: '' },
+      exp_clearance: { status: 'done', date: '2025-05-08', note: '正常放行' },
+      sailing: { status: 'done', date: '2025-05-09', note: '' },
+      eta: { status: 'progress', date: '', note: 'ETA: 2025-06-05' },
+      ocean_track: { status: 'progress', date: '', note: '航行中 · 太平洋' },
+      arrival: { status: 'pending', date: '', note: '' },
+      arrival_date: { status: 'pending', date: '', note: '' },
+      imp_customs: { status: 'pending', date: '', note: '' },
+      imp_clearance: { status: 'pending', date: '', note: '' },
+      dray: { status: 'pending', date: '', note: '' },
+      delivery: { status: 'pending', date: '', note: '' },
+      pod: { status: 'pending', date: '', note: '' },
+    }
+  },
+  {
+    id: genId(),
+    booking: 'NB-NG-20250420-003',
+    container: 'HLCU3456789',
+    seal: 'SL20250415',
+    tempContainer: 'TMP-NB-2025-0415',
+    shipper: '华东供应链（苏州）有限公司',
+    shipperAddr: '苏州市昆山市环城西路239号',
+    consignee: 'GLOBAL HOME DEPOT INC',
+    consigneeAddr: '500 Supply Ave, Oakland, CA 94601',
+    factoryName: '苏州蓝星家具有限公司',
+    factoryAddr: '苏州市吴江区松陵镇工业园区蓝星路8号',
+    factoryContact: '陈厂长 136-5120-8888',
+    originPort: '宁波',
+    destPort: '奥克兰',
+    destCity: 'Oakland, CA',
+    destAddr: '500 Supply Ave, Oakland, CA',
+    goods: '家具 / Furniture',
+    ctns: '120',
+    volume: '35.0',
+    weight: '9500',
+    dept: '客服部',
+    nodes: {
+      booking: { status: 'done', date: '2025-04-20', note: '' },
+      truck_pickup: { status: 'done', date: '2025-04-22', note: '' },
+      stuffing: { status: 'done', date: '2025-04-23', note: '' },
+      cy_entry: { status: 'done', date: '2025-04-24', note: '' },
+      exp_customs: { status: 'done', date: '2025-04-24', note: '' },
+      exp_clearance: { status: 'done', date: '2025-04-24', note: '' },
+      sailing: { status: 'done', date: '2025-04-25', note: '' },
+      eta: { status: 'done', date: '2025-04-25', note: 'ETA: 2025-05-20' },
+      ocean_track: { status: 'done', date: '2025-05-20', note: '已到港' },
+      arrival: { status: 'done', date: '2025-05-20', note: '' },
+      arrival_date: { status: 'done', date: '2025-05-20', note: '实际到港' },
+      imp_customs: { status: 'done', date: '2025-05-22', note: '' },
+      imp_clearance: { status: 'done', date: '2025-05-23', note: '清关完成' },
+      dray: { status: 'done', date: '2025-05-24', note: '' },
+      delivery: { status: 'progress', date: '', note: '派送中' },
+      pod: { status: 'pending', date: '', note: '' },
+    }
+  },
+  {
+    id: genId(),
+    booking: 'SH-SEA-20250501-004',
+    container: 'OOLU4567890',
+    seal: 'SL20250428',
+    tempContainer: 'TMP-SH-2025-0501',
+    shipper: '上海出口贸易有限公司',
+    shipperAddr: '上海市浦东新区外高桥',
+    consignee: 'PACIFIC TRADERS INC',
+    consigneeAddr: '200 Port Way, Seattle, WA 98101',
+    factoryName: '杭州丝绸之路纺织厂',
+    factoryAddr: '杭州市余杭区乔司镇丝绸路88号',
+    factoryContact: '张总 137-0571-6688',
+    originPort: '上海',
+    destPort: '西雅图',
+    destCity: 'Seattle, WA',
+    destAddr: '200 Port Way, Seattle, WA',
+    goods: '纺织品 / Textiles',
+    ctns: '500',
+    volume: '28.0',
+    weight: '5200',
+    dept: '操作部',
+    nodes: {
+      booking: { status: 'done', date: '2025-05-01', note: '' },
+      truck_pickup: { status: 'done', date: '2025-05-03', note: '' },
+      stuffing: { status: 'done', date: '2025-05-04', note: '' },
+      cy_entry: { status: 'done', date: '2025-05-05', note: '' },
+      exp_customs: { status: 'delayed', date: '2025-05-06', note: '海关查验中' },
+      exp_clearance: { status: 'pending', date: '', note: '等待放行' },
+      sailing: { status: 'pending', date: '', note: '待报关完成' },
+      eta: { status: 'pending', date: '', note: 'ETA: 待定' },
+      ocean_track: { status: 'pending', date: '', note: '' },
+      arrival: { status: 'pending', date: '', note: '' },
+      arrival_date: { status: 'pending', date: '', note: '' },
+      imp_customs: { status: 'pending', date: '', note: '' },
+      imp_clearance: { status: 'pending', date: '', note: '' },
+      dray: { status: 'pending', date: '', note: '' },
+      delivery: { status: 'pending', date: '', note: '' },
+      pod: { status: 'pending', date: '', note: '' },
+    }
+  },
+  {
+    id: genId(),
+    booking: 'YT-LB-20250410-005',
+    container: 'EGHU5678901',
+    seal: 'SL20250408',
+    tempContainer: 'TMP-YT-2025-0410',
+    shipper: '深圳市星链智运科技有限公司',
+    shipperAddr: '深圳市南山区科技园',
+    consignee: 'SUNSHINE IMPORTS LLC',
+    consigneeAddr: '800 Beach Blvd, Long Beach, CA 90802',
+    factoryName: '汕头澄海玩具城实业有限公司',
+    factoryAddr: '汕头市澄海区玩具工业园B区18号',
+    factoryContact: '黄老板 135-0754-5566',
+    originPort: '深圳盐田',
+    destPort: '长滩',
+    destCity: 'Long Beach, CA',
+    destAddr: '800 Beach Blvd, Long Beach, CA',
+    goods: '玩具 / Toys',
+    ctns: '600',
+    volume: '40.0',
+    weight: '8000',
+    dept: '财务部',
+    nodes: {
+      booking: { status: 'done', date: '2025-04-10', note: '' },
+      truck_pickup: { status: 'done', date: '2025-04-12', note: '' },
+      stuffing: { status: 'done', date: '2025-04-13', note: '' },
+      cy_entry: { status: 'done', date: '2025-04-14', note: '' },
+      exp_customs: { status: 'done', date: '2025-04-14', note: '' },
+      exp_clearance: { status: 'done', date: '2025-04-14', note: '' },
+      sailing: { status: 'done', date: '2025-04-15', note: '' },
+      eta: { status: 'done', date: '2025-04-15', note: 'ETA: 2025-05-10' },
+      ocean_track: { status: 'done', date: '2025-05-10', note: '' },
+      arrival: { status: 'done', date: '2025-05-10', note: '' },
+      arrival_date: { status: 'done', date: '2025-05-10', note: '' },
+      imp_customs: { status: 'done', date: '2025-05-12', note: '' },
+      imp_clearance: { status: 'done', date: '2025-05-13', note: '' },
+      dray: { status: 'done', date: '2025-05-14', note: '' },
+      delivery: { status: 'done', date: '2025-05-15', note: '' },
+      pod: { status: 'done', date: '2025-05-15', note: 'POD已签收' },
+    }
+  },
+];
+
+// ===== 路径一：API配置 =====
+const API_BASE = localStorage.getItem('ddp_api_base') || '';
+const USE_API = !!API_BASE;
+let _syncStatus = 'offline'; // 'ok' | 'loading' | 'error' | 'offline'
+
+// ===== 同步状态指示器 =====
+function setSyncStatus(status, msg) {
+  _syncStatus = status;
+  const el = document.getElementById('sync-indicator');
+  const txt = document.getElementById('sync-text');
+  if (!el) return;
+  el.className = 'sync-indicator show';
+  el.classList.remove('sync-ok', 'sync-loading', 'sync-error', 'sync-offline');
+  if (status === 'ok') el.classList.add('sync-ok');
+  else if (status === 'loading') el.classList.add('sync-loading');
+  else if (status === 'error') el.classList.add('sync-error');
+  else el.classList.add('sync-offline');
+  if (txt) txt.textContent = msg || (status === 'ok' ? '已同步' : status === 'loading' ? '同步中' : status === 'error' ? '同步失败' : '离线模式');
+}
+
+// ===== API 调用层 =====
+async function apiCall(method, path, body) {
+  if (!USE_API) return null;
+  const url = API_BASE + path;
+  const opts = {
+    method,
+    headers: { 'Content-Type': 'application/json' },
+  };
+  if (body) opts.body = JSON.stringify(body);
+  try {
+    const resp = await fetch(url, opts);
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({ error: `HTTP ${resp.status}` }));
+      throw new Error(err.error || `HTTP ${resp.status}`);
+    }
+    const result = await resp.json();
+    if (result.code !== 0) throw new Error(result.error || '未知错误');
+    return result.data;
+  } catch (e) {
+    console.error('API Error:', e.message);
+    return null;
+  }
+}
+
+// ===== 数据存取（支持 localStorage 离线降级）=====
+let shipmentData = [];
+let _dataLoaded = false;
+
+async function loadData() {
+  if (!USE_API) {
+    // 离线模式：使用 localStorage
+    const stored = localStorage.getItem('ddp_tracking_data');
+    shipmentData = stored ? JSON.parse(stored) : sampleData;
+    _dataLoaded = true;
+    setSyncStatus('offline', '本地模式');
+    return;
+  }
+
+  setSyncStatus('loading', '加载中...');
+  const data = await apiCall('GET', '/data');
+  
+  if (data && Array.isArray(data) && data.length > 0) {
+    shipmentData = data;
+    setSyncStatus('ok', '已同步');
+  } else {
+    // API有数据但为空，或首次使用
+    const stored = localStorage.getItem('ddp_tracking_data');
+    const local = stored ? JSON.parse(stored) : sampleData;
+    
+    // 如果本地有示例数据，尝试同步到云端
+    if (!data || data.length === 0) {
+      setSyncStatus('ok', '已连接');
+    }
+    
+    shipmentData = local;
+  }
+  _dataLoaded = true;
+}
+
+async function saveDataToApi(record, action) {
+  if (!USE_API) {
+    localStorage.setItem('ddp_tracking_data', JSON.stringify(shipmentData));
+    return true;
+  }
+
+  setSyncStatus('loading', '保存中...');
+  let ok = false;
+
+  if (action === 'add') {
+    ok = await apiCall('POST', '/data', record);
+  } else if (action === 'update') {
+    ok = await apiCall('PUT', `/data/${record.id}`, record);
+  } else if (action === 'delete') {
+    ok = await apiCall('DELETE', `/data/${record.id}`);
+  }
+
+  if (ok) {
+    setSyncStatus('ok', '已同步');
+  } else {
+    setSyncStatus('error', '同步失败');
+  }
+  return ok !== null;
+}
+
+// 页面初始化时检查 API 连接状态
+(function checkApiHealth() {
+  if (!USE_API) return;
+  apiCall('GET', '/health').then(ok => {
+    if (ok) setSyncStatus('ok', '已连接');
+    else setSyncStatus('error', '连接失败');
+  }).catch(() => setSyncStatus('error', '连接失败'));
+})();
+
+let currentFilter = 'all';
+let editId = null;
+
+// ===== 渲染 =====
+function renderTable(data) {
+  const tbody = document.getElementById('table-body');
+  const count = document.getElementById('table-count');
+  count.textContent = data.length;
+
+  if (data.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="30" style="text-align:center; padding:40px; color:var(--text-muted);">暂无数据，请点击右上角「+ 新增柜子」添加</td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = data.map(row => {
+    const overall = getOverallStatus(row.nodes);
+    const overallClass = overall === 'delivered' ? 'overall-delivered' : overall === 'in-transit' ? 'overall-in-transit' : overall === 'delayed' ? 'overall-delayed' : 'overall-pending';
+    const overallText = overall === 'delivered' ? '已签收' : overall === 'in-transit' ? '运输中' : overall === 'delayed' ? '延误' : '待发货';
+
+    const nodeCell = (nodeId) => {
+      const n = row.nodes[nodeId];
+      if (!n) return '';
+      const cls = STATUS_CLASS[n.status] || 'status-pending';
+      const lbl = STATUS_LABEL[n.status] || '待处理';
+      const dateStr = n.date ? `<div class="node-date">${n.date}</div>` : '';
+      const noteStr = n.note ? `<div style="font-size:10px;color:var(--text-muted);max-width:70px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${n.note}">${n.note}</div>` : '';
+      return `<div class="node-wrap"><span class="node-status ${cls}">${lbl}</span>${dateStr}${noteStr}</div>`;
+    };
+
+    const goodsDesc = row.goods ? `${row.goods}<br><span class="num">${row.ctns || 0} CTNS</span>` : `<span class="num">${row.ctns || 0} CTNS</span>`;
+    const volWt = `${row.volume || 0} CBM<br><span class="num">${row.weight || 0} KG</span>`;
+
+    return `<tr ondblclick="editRecord('${row.id}')">
+      <td><strong>${row.booking || '-'}</strong></td>
+      <td class="num">${row.container || '-'}</td>
+      <td style="font-size:11px;color:var(--text-muted)">${row.seal || '-'}</td>
+      <td style="font-size:11px;color:var(--text-muted)">${row.tempContainer || '-'}</td>
+      <td style="font-size:11px">${row.shipper || '-'}</td>
+      <td style="font-size:11px">${row.consignee || '-'}</td>
+      <td class="cell-center"><span class="overall-badge ${overallClass}">${overallText}</span></td>
+      <td style="font-size:11px"><strong>${row.factoryName || '-'}</strong></td>
+      <td style="font-size:11px">${row.factoryAddr || '-'}</td>
+      <td style="font-size:11px">${row.factoryContact || '-'}</td>
+      <td style="font-size:11px">${goodsDesc}</td>
+      <td class="cell-center">${volWt}</td>
+      <td class="cell-center"><strong>${row.originPort || '-'}</strong></td>
+      <td style="font-size:11px">${row.nodes.booking?.date || '-'}</td>
+      <td class="cell-center"><strong>${row.destPort || '-'}</strong></td>
+      <td style="font-size:11px">${row.destCity || '-'}</td>
+      <td class="col-node">${nodeCell('booking')}</td>
+      <td class="col-node">${nodeCell('truck_pickup')}</td>
+      <td class="col-node">${nodeCell('stuffing')}</td>
+      <td class="col-node">${nodeCell('cy_entry')}</td>
+      <td class="col-node">${nodeCell('exp_customs')}</td>
+      <td class="col-node">${nodeCell('exp_clearance')}</td>
+      <td class="col-node">${nodeCell('sailing')}</td>
+      <td class="col-node">${nodeCell('eta')}</td>
+      <td class="col-node">${nodeCell('ocean_track')}</td>
+      <td class="col-node">${nodeCell('arrival')}</td>
+      <td class="col-node">${nodeCell('arrival_date')}</td>
+      <td class="col-node">${nodeCell('imp_customs')}</td>
+      <td class="col-node">${nodeCell('imp_clearance')}</td>
+      <td class="col-node">${nodeCell('dray')}</td>
+      <td class="col-node">${nodeCell('delivery')}</td>
+      <td class="col-node">${nodeCell('pod')}</td>
+      <td class="cell-center"><span class="dept-tag">${row.dept || '-'}</span></td>
+      <td class="cell-center">
+        <div class="action-btns">
+          <button class="action-btn" onclick="editRecord('${row.id}')" title="编辑">✏️</button>
+          <button class="action-btn" onclick="deleteRecord('${row.id}')" title="删除">🗑️</button>
+        </div>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+function getOverallStatus(nodes) {
+  if (nodes.pod?.status === 'done') return 'delivered';
+  if (nodes.exp_customs?.status === 'delayed' || nodes.imp_clearance?.status === 'delayed') return 'delayed';
+  if (nodes.sailing?.status === 'done' && nodes.arrival?.status !== 'done') return 'in-transit';
+  if (nodes.booking?.status === 'done') return 'pending';
+  return 'pending';
+}
+
+function updateStats() {
+  const data = getFilteredData();
+  const total = data.length;
+  const pending = data.filter(r => getOverallStatus(r.nodes) === 'pending').length;
+  const transit = data.filter(r => getOverallStatus(r.nodes) === 'in-transit').length;
+  const delivered = data.filter(r => getOverallStatus(r.nodes) === 'delivered').length;
+  const delayed = data.filter(r => getOverallStatus(r.nodes) === 'delayed').length;
+  const pct = total ? Math.round(delivered / total * 100) : 0;
+  document.getElementById('stat-total').textContent = total;
+  document.getElementById('stat-pending').textContent = pending;
+  document.getElementById('stat-transit').textContent = transit;
+  document.getElementById('stat-delivered').textContent = delivered;
+  document.getElementById('stat-delayed').textContent = delayed;
+  document.getElementById('stat-progress').textContent = pct + '%';
+}
+
+function getFilteredData() {
+  let data = [...shipmentData];
+  const shipper = document.getElementById('filter-shipper')?.value || '';
+  const origin = document.getElementById('filter-origin')?.value || '';
+  const dest = document.getElementById('filter-dest')?.value || '';
+  const dept = document.getElementById('filter-dept')?.value || '';
+  const container = document.getElementById('filter-container')?.value || '';
+  const booking = document.getElementById('filter-booking')?.value || '';
+
+  if (shipper) data = data.filter(r => r.shipper.includes(shipper));
+  if (origin) data = data.filter(r => r.originPort === origin);
+  if (dest) data = data.filter(r => r.destPort === dest);
+  if (dept) data = data.filter(r => r.dept === dept);
+  if (container) data = data.filter(r => r.container.toLowerCase().includes(container.toLowerCase()));
+  if (booking) data = data.filter(r => r.booking.toLowerCase().includes(booking.toLowerCase()));
+
+  // 时间段筛选
+  const dateField = document.getElementById('filter-date-field')?.value || 'booking_date';
+  const dateStart = document.getElementById('filter-date-start')?.value || '';
+  const dateEnd = document.getElementById('filter-date-end')?.value || '';
+
+  if (dateStart || dateEnd) {
+    const fieldMap = {
+      booking_date: r => r.nodes.booking?.date || '',
+      sailing_date: r => r.nodes.sailing?.date || '',
+      arrival_date: r => r.nodes.arrival_date?.date || r.nodes.arrival?.date || '',
+      pod_date: r => r.nodes.pod?.date || '',
+    };
+    const getDate = fieldMap[dateField] || fieldMap.booking_date;
+    data = data.filter(r => {
+      const d = getDate(r);
+      if (!d) return false;
+      if (dateStart && d < dateStart) return false;
+      if (dateEnd && d > dateEnd) return false;
+      return true;
+    });
+  }
+
+  if (currentFilter !== 'all') {
+    if (currentFilter === 'in-transit') data = data.filter(r => getOverallStatus(r.nodes) === 'in-transit');
+    if (currentFilter === 'delivered') data = data.filter(r => getOverallStatus(r.nodes) === 'delivered');
+    if (currentFilter === 'pending') data = data.filter(r => getOverallStatus(r.nodes) === 'pending');
+    if (currentFilter === 'delayed') data = data.filter(r => getOverallStatus(r.nodes) === 'delayed');
+  }
+  return data;
+}
+
+function filterStatus(status) {
+  currentFilter = status;
+  document.querySelectorAll('.badge-btn').forEach(b => b.classList.remove('active'));
+  document.querySelector(`.badge-btn[data-status="${status}"]`).classList.add('active');
+  applyFilters();
+}
+
+function applyFilters() {
+  const data = getFilteredData();
+  renderTable(data);
+  updateStats();
+}
+
+function populateFilters() {
+  const shippers = [...new Set(shipmentData.map(r => r.shipper).filter(Boolean))];
+  const origins = [...new Set(shipmentData.map(r => r.originPort).filter(Boolean))];
+  const dests = [...new Set(shipmentData.map(r => r.destPort).filter(Boolean))];
+  const depts = [...new Set(shipmentData.map(r => r.dept).filter(Boolean))];
+
+  const setOptions = (id, values) => {
+    const sel = document.getElementById(id);
+    if (!sel) return;
+    const cur = sel.value;
+    sel.innerHTML = '<option value="">全部</option>' + values.map(v => `<option value="${v}">${v}</option>`).join('');
+    sel.value = cur;
+  };
+  setOptions('filter-shipper', shippers);
+  setOptions('filter-origin', origins);
+  setOptions('filter-dest', dests);
+  setOptions('filter-dept', depts);
+}
+
+// ===== Modal =====
+function openAddModal() {
+  editId = null;
+  document.getElementById('modal-title').textContent = '新增柜子';
+  document.getElementById('edit-modal').classList.add('active');
+  clearForm();
+  buildNodeEditor({});
+}
+
+function editRecord(id) {
+  const row = shipmentData.find(r => r.id === id);
+  if (!row) return;
+  editId = id;
+  document.getElementById('modal-title').textContent = '编辑柜子 - ' + row.container;
+  document.getElementById('edit-modal').classList.add('active');
+  populateForm(row);
+  buildNodeEditor(row.nodes);
+}
+
+function closeModal() {
+  document.getElementById('edit-modal').classList.remove('active');
+  editId = null;
+}
+
+function clearForm() {
+  ['f-booking','f-container','f-seal','f-temp-container','f-shipper','f-shipper-addr','f-consignee','f-consignee-addr',
+   'f-factory-name','f-factory-addr','f-factory-contact',
+   'f-dest-city','f-dest-addr','f-goods','f-ctns','f-volume','f-weight'].forEach(id => {
+    document.getElementById(id).value = '';
+  });
+  document.getElementById('f-dept').value = '操作部';
+  document.getElementById('f-origin-port').value = '';
+  document.getElementById('f-dest-port').value = '';
+}
+
+function populateForm(row) {
+  document.getElementById('f-booking').value = row.booking || '';
+  document.getElementById('f-container').value = row.container || '';
+  document.getElementById('f-seal').value = row.seal || '';
+  document.getElementById('f-temp-container').value = row.tempContainer || '';
+  document.getElementById('f-shipper').value = row.shipper || '';
+  document.getElementById('f-shipper-addr').value = row.shipperAddr || '';
+  document.getElementById('f-consignee').value = row.consignee || '';
+  document.getElementById('f-consignee-addr').value = row.consigneeAddr || '';
+  document.getElementById('f-factory-name').value = row.factoryName || '';
+  document.getElementById('f-factory-addr').value = row.factoryAddr || '';
+  document.getElementById('f-factory-contact').value = row.factoryContact || '';
+  document.getElementById('f-origin-port').value = row.originPort || '';
+  document.getElementById('f-dest-port').value = row.destPort || '';
+  document.getElementById('f-dest-city').value = row.destCity || '';
+  document.getElementById('f-dest-addr').value = row.destAddr || '';
+  document.getElementById('f-goods').value = row.goods || '';
+  document.getElementById('f-ctns').value = row.ctns || '';
+  document.getElementById('f-volume').value = row.volume || '';
+  document.getElementById('f-weight').value = row.weight || '';
+  document.getElementById('f-dept').value = row.dept || '操作部';
+}
+
+function buildNodeEditor(nodes) {
+  const container = document.getElementById('node-edit-container');
+  container.innerHTML = NODES.map(n => {
+    const nd = nodes[n.id] || { status: 'pending', date: '', note: '' };
+    return `<div class="node-edit-row">
+      <div class="node-label-cell">${n.label}<br><span class="node-label-en">${n.en}</span></div>
+      <div>
+        <select class="node-select" id="node-${n.id}-status">
+          ${STATUS_OPTIONS.map(o => `<option value="${o.value}" ${nd.status === o.value ? 'selected' : ''}>${o.label}</option>`).join('')}
+        </select>
+      </div>
+      <div><input type="date" class="node-date" id="node-${n.id}-date" value="${nd.date || ''}"></div>
+      <div><input type="text" class="node-date" id="node-${n.id}-note" placeholder="备注" value="${nd.note || ''}"></div>
+    </div>`;
+  }).join('');
+}
+
+async function saveRecord() {
+  const get = id => document.getElementById(id).value.trim();
+  const getNum = id => parseFloat(document.getElementById(id).value) || 0;
+
+  if (!get('f-booking') || !get('f-container')) {
+    alert('订舱号和柜号不能为空！');
+    return;
+  }
+
+  const nodes = {};
+  NODES.forEach(n => {
+    nodes[n.id] = {
+      status: document.getElementById(`node-${n.id}-status`).value,
+      date: document.getElementById(`node-${n.id}-date`).value,
+      note: document.getElementById(`node-${n.id}-note`).value,
+    };
+  });
+
+  const record = {
+    id: editId || genId(),
+    booking: get('f-booking'),
+    container: get('f-container'),
+    seal: get('f-seal'),
+    tempContainer: get('f-temp-container'),
+    shipper: get('f-shipper'),
+    shipperAddr: get('f-shipper-addr'),
+    consignee: get('f-consignee'),
+    consigneeAddr: get('f-consignee-addr'),
+    factoryName: get('f-factory-name'),
+    factoryAddr: get('f-factory-addr'),
+    factoryContact: get('f-factory-contact'),
+    originPort: get('f-origin-port'),
+    destPort: get('f-dest-port'),
+    destCity: get('f-dest-city'),
+    destAddr: get('f-dest-addr'),
+    goods: get('f-goods'),
+    ctns: getNum('f-ctns'),
+    volume: getNum('f-volume'),
+    weight: getNum('f-weight'),
+    dept: get('f-dept') || '操作部',
+    nodes,
+  };
+
+  if (editId) {
+    const idx = shipmentData.findIndex(r => r.id === editId);
+    if (idx !== -1) shipmentData[idx] = record;
+    await saveDataToApi(record, 'update');
+  } else {
+    shipmentData.unshift(record);
+    await saveDataToApi(record, 'add');
+  }
+
+  closeModal();
+  populateFilters();
+  applyFilters();
+  document.getElementById('update-time').textContent = new Date().toLocaleString('zh-CN');
+}
+
+async function deleteRecord(id) {
+  if (!confirm('确定要删除此条记录吗？')) return;
+  shipmentData = shipmentData.filter(r => r.id !== id);
+  await saveDataToApi({ id }, 'delete');
+  populateFilters();
+  applyFilters();
+}
+
+// ===== 导出 =====
+function exportTable() {
+  const data = getFilteredData();
+  if (!data.length) { alert('无数据可导出'); return; }
+  const headers = ['订舱号','柜号','封条号','临柜号','Shipper','Consignee','总体状态',
+    '出货工厂名','装货地址','工厂联系人',
+    '品名','件数','体积CBM','重量KG','起运港','目的港','目的城市',
+    ...NODES.map(n => n.label), '跟进部门'];
+  const rows = data.map(r => {
+    const overall = getOverallStatus(r.nodes);
+    const overallText = overall === 'delivered' ? '已签收' : overall === 'in-transit' ? '运输中' : overall === 'delayed' ? '延误' : '待发货';
+    return [
+      r.booking, r.container, r.seal, r.tempContainer || '',
+      r.shipper, r.consignee, overallText,
+      r.factoryName || '', r.factoryAddr || '', r.factoryContact || '',
+      r.goods, r.ctns, r.volume, r.weight, r.originPort, r.destPort, r.destCity,
+      ...NODES.map(n => `${STATUS_LABEL[r.nodes[n.id]?.status] || '待处理'} ${r.nodes[n.id]?.date || ''} ${r.nodes[n.id]?.note || ''}`.trim()),
+      r.dept
+    ];
+  });
+  let csv = '\uFEFF' + headers.map(h => `"${h}"`).join(',') + '\n';
+  rows.forEach(row => { csv += row.map(cell => `"${(cell || '').toString().replace(/"/g, '""')}"`).join(',') + '\n'; });
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(blob);
+  link.download = `DDP跟踪表_${new Date().toISOString().slice(0,10)}.csv`;
+  link.click();
+}
+
+// ===== 用户管理 =====
+function openUserModal() {
+  document.getElementById('user-modal').classList.add('active');
+  renderUserList();
+}
+
+function closeUserModal() {
+  document.getElementById('user-modal').classList.remove('active');
+}
+
+function renderUserList() {
+  const users = getUsers();
+  const session = getSession();
+  const list = document.getElementById('user-list');
+  if (!users.length) {
+    list.innerHTML = '<div style="color:var(--text-muted);font-size:13px;text-align:center;padding:20px;">暂无其他用户</div>';
+    return;
+  }
+  list.innerHTML = users.map(u => `
+    <div class="user-item">
+      <div class="user-info">
+        <span class="user-name">${u.username}</span>
+        <span class="${u.role === 'admin' ? 'admin-badge' : 'user-badge'}">${u.role === 'admin' ? '管理员' : '普通用户'}</span>
+        ${u.username === session.username ? '<span style="font-size:11px;color:var(--text-muted);">(当前)</span>' : ''}
+      </div>
+      <div class="user-actions">
+        ${u.username !== session.username ? `<button class="icon-btn danger" onclick="deleteUser('${u.username}')" title="删除">🗑️</button>` : ''}
+      </div>
+    </div>
+  `).join('');
+}
+
+function addUser() {
+  const name = document.getElementById('new-user-name').value.trim();
+  const pass = document.getElementById('new-user-pass').value;
+  const role = document.getElementById('new-user-role').value;
+  if (!name) { alert('用户名不能为空'); return; }
+  if (pass.length < 4) { alert('密码至少4位'); return; }
+  const users = getUsers();
+  if (users.find(u => u.username === name)) { alert('用户名已存在'); return; }
+  users.push({ username: name, passwordHash: simpleHash(pass), role });
+  saveUsers(users);
+  document.getElementById('new-user-name').value = '';
+  document.getElementById('new-user-pass').value = '';
+  renderUserList();
+}
+
+function deleteUser(username) {
+  if (!confirm(`确定删除用户「${username}」吗？`)) return;
+  let users = getUsers();
+  users = users.filter(u => u.username !== username);
+  saveUsers(users);
+  renderUserList();
+}
+
+// 点击遮罩关闭用户管理
+document.getElementById('user-modal').addEventListener('click', function(e) {
+  if (e.target === this) closeUserModal();
+});
+
+// ===== 事件绑定 =====
+['filter-shipper','filter-origin','filter-dest','filter-dept','filter-date-field'].forEach(id => {
+  document.getElementById(id)?.addEventListener('change', applyFilters);
+});
+['filter-container','filter-booking'].forEach(id => {
+  document.getElementById(id)?.addEventListener('input', debounce(applyFilters, 400));
+});
+['filter-date-start','filter-date-end'].forEach(id => {
+  document.getElementById(id)?.addEventListener('change', applyFilters);
+});
+
+function resetDateFilter() {
+  document.getElementById('filter-date-start').value = '';
+  document.getElementById('filter-date-end').value = '';
+  applyFilters();
+}
+
+function debounce(fn, delay) {
+  let t;
+  return function(...args) { clearTimeout(t); t = setTimeout(() => fn.apply(this, args), delay); };
+}
+
+// ===== 初始化 =====
+function initApp() {
+  document.getElementById('update-time').textContent = new Date().toLocaleString('zh-CN');
+  
+  // 更新数据来源标注
+  const note = document.getElementById('data-source-note');
+  if (note) {
+    if (USE_API) {
+      note.textContent = '☁️ 数据同步至腾讯文档微表格（云端协同）';
+      note.style.color = '#185FA5';
+    } else {
+      note.textContent = '📱 本地存储模式（各浏览器独立，可导出CSV备份）';
+      note.style.color = '';
+    }
+  }
+  
+  populateFilters();
+  applyFilters();
+
+  // 用户信息栏
+  const session = getSession();
+  if (session) {
+    const userInfoBar = document.getElementById('user-info-bar');
+    const btnManage = document.getElementById('btn-user-manage');
+    userInfoBar.style.display = 'inline';
+    userInfoBar.textContent = `👤 ${session.username}`;
+    if (session.role === 'admin') {
+      btnManage.style.display = 'inline-flex';
+    }
+  }
+}
+
+async function bootApp() {
+  // 显示加载状态
+  const overlay = document.getElementById('loading-overlay');
+  const loadingText = document.getElementById('loading-text');
+  overlay.classList.add('show');
+  loadingText.textContent = USE_API ? '正在连接服务器...' : '正在加载本地数据...';
+
+  // 异步加载数据
+  await loadData();
+
+  // 初始化界面
+  initApp();
+  overlay.classList.remove('show');
+}
+
+// 页面加载时检查登录状态，然后启动应用
+(function checkAuth() {
+  const session = getSession();
+  const users = getUsers();
+  if (!session || !users.find(u => u.username === session.username)) {
+    // 未登录，显示登录页
+    showLoginScreen();
+  } else {
+    // 已登录，直接进入
+    document.getElementById('login-screen').classList.add('hide');
+    bootApp();
+  }
+})();
+
+// 点击遮罩关闭
+document.getElementById('edit-modal').addEventListener('click', function(e) {
+  if (e.target === this) closeModal();
+});
+</script>
+
+<!-- ===== 登录页 ===== -->
+<div class="login-overlay" id="login-screen">
+  <div class="login-box">
+    <div class="login-logo">🚢</div>
+    <div class="login-title">DDP 中美物流跟踪表</div>
+    <div class="login-sub">星链智运 · 全链路协同追踪平台 · 支持云端同步</div>
+
+    <div class="login-form" id="login-form">
+      <div id="login-api-section" style="margin-bottom:12px; padding:8px 10px; background:#E6F1FB; border-radius:8px; border:1px solid #B5D4F4;">
+        <div style="font-size:11px; color:var(--blue); font-weight:600; margin-bottom:4px;">☁️ 云端同步模式</div>
+        <input type="url" id="login-api-url" class="login-input" style="padding-left:12px; font-size:12px;" placeholder="腾讯云函数地址（可选）" title="留空则使用本地模式">
+      </div>
+      <div class="login-input-wrap">
+        <span class="login-input-icon">👤</span>
+        <input type="text" class="login-input" id="login-username" placeholder="请输入用户名" autocomplete="off">
+      </div>
+      <div class="login-input-wrap">
+        <span class="login-input-icon">🔒</span>
+        <input type="password" class="login-input" id="login-password" placeholder="请输入密码">
+      </div>
+      <div class="login-error" id="login-error-msg">用户名或密码错误</div>
+      <button class="login-btn" onclick="performLogin()">登 录</button>
+      <div class="login-link" id="login-setup-link" onclick="showSetupPanel()">🔑 首次使用 / 忘记密码？点此设置 →</div>
+    </div>
+
+    <!-- 设置管理员账号 -->
+    <div id="setup-panel" style="display:none; text-align:left;">
+      <div style="font-size:14px; font-weight:600; color:var(--blue); margin-bottom:12px;">🔐 设置管理员账号</div>
+      <div id="api-config-section" style="margin-bottom:14px; padding:10px; background:#FAFAF8; border-radius:8px; border:1px solid var(--border);">
+        <div style="font-size:12px; font-weight:600; color:var(--text-muted); margin-bottom:6px;">☁️ 腾讯云函数地址（可选）</div>
+        <div style="font-size:11px; color:var(--text-muted); margin-bottom:6px;">留空则使用本地存储；填入则启用云端同步</div>
+        <input type="url" id="setup-api-url" class="login-input" style="padding-left:12px; font-size:12px;" placeholder="https://service-xxxx.gz.apigw.tencentcs.com/...">
+        <div style="margin-top:6px; display:flex; align-items:center; gap:8px;">
+          <label style="display:flex; align-items:center; gap:4px; font-size:11px; color:var(--text-muted); cursor:pointer;">
+            <input type="checkbox" id="setup-clear-api" style="cursor:pointer;"> 清除已有API地址
+          </label>
+        </div>
+      </div>
+      <div class="login-form">
+        <div class="login-input-wrap">
+          <span class="login-input-icon">👤</span>
+          <input type="text" class="login-input" id="setup-username" placeholder="设置管理员用户名" autocomplete="off">
+        </div>
+        <div class="login-input-wrap">
+          <span class="login-input-icon">🔒</span>
+          <input type="password" class="login-input" id="setup-password" placeholder="设置管理员密码">
+        </div>
+        <div class="login-input-wrap">
+          <span class="login-input-icon">🔒</span>
+          <input type="password" class="login-input" id="setup-password2" placeholder="确认密码">
+        </div>
+        <div class="login-error" id="setup-error-msg"></div>
+        <button class="login-btn" onclick="performSetup()">确认创建</button>
+        <div class="login-link" onclick="showLoginPanel()">← 返回登录</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== 用户管理弹窗（管理员专用）===== -->
+<div class="modal-overlay" id="user-modal">
+  <div class="modal" style="max-width:520px;">
+    <div class="modal-header">
+      <div class="modal-title">👥 用户管理</div>
+      <button class="modal-close" onclick="closeUserModal()">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-section-title" style="margin-bottom:14px;">当前用户列表</div>
+      <div class="user-list" id="user-list"></div>
+      <div class="add-user-row">
+        <input type="text" id="new-user-name" placeholder="新增用户名">
+        <input type="password" id="new-user-pass" placeholder="密码">
+        <select id="new-user-role">
+          <option value="user">普通用户</option>
+          <option value="admin">管理员</option>
+        </select>
+        <button class="add-user-btn" onclick="addUser()">添加</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>
