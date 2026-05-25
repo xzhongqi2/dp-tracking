@@ -234,6 +234,7 @@ select.node-select:focus, input.node-date:focus { outline: 2px solid var(--blue-
   .main-content { padding: 12px; }
 }
 </style>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
 <body>
 
@@ -244,13 +245,6 @@ select.node-select:focus, input.node-date:focus { outline: 2px solid var(--blue-
     <div class="app-subtitle">星链智运科技物流 · 全链路协同追踪平台 · 更新于 <span id="update-time"></span></div>
   </div>
   <div class="header-actions">
-    <span id="sync-indicator" class="sync-indicator">
-      <span class="sync-icon"></span>
-      <span id="sync-text">同步中</span>
-    </span>
-    <span id="user-info-bar" style="font-size:12px;opacity:0.85;display:none;"></span>
-    <button class="btn btn-outline" id="btn-user-manage" onclick="openUserModal()" style="display:none;">👥 用户管理</button>
-    <button class="btn btn-outline" onclick="performLogout()">🔓 退出</button>
     <button class="btn btn-outline" onclick="exportTable()">📥 导出表格</button>
     <button class="btn btn-primary" onclick="openAddModal()">+ 新增柜子</button>
   </div>
@@ -522,148 +516,94 @@ select.node-select:focus, input.node-date:focus { outline: 2px solid var(--blue-
 </div>
 
 <script>
-// ===== 认证系统 =====
-const AUTH_KEY = 'ddp_auth_v1';
-const USERS_KEY = 'ddp_users_v1';
+// ===== Supabase Client =====
+const SUPABASE_URL = 'https://jqowxpcicqxbwubmowgr.supabase.co';
+const SUPABASE_ANON_KEY = 'sb_publishable_HGioZE--7_zSapBl-JfuoQ_tiRknMvD';
+const ALLOWED_DOMAIN = '@starlinkai-logistics.cn';
+const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-function getUsers() {
-  return JSON.parse(localStorage.getItem(USERS_KEY) || 'null') || [];
+// ===== Auth state =====
+let _authUser = null;
+let _authRole = null; // 'staff' | 'viewer' | null
+
+function getInviteCode() {
+  return new URLSearchParams(location.search).get('invite');
+}
+function clearInviteFromUrl() {
+  const url = new URL(location.href);
+  url.searchParams.delete('invite');
+  history.replaceState({}, '', url);
 }
 
-function saveUsers(users) {
-  localStorage.setItem(USERS_KEY, JSON.stringify(users));
+// ===== Auth gate UI (replaces body when not logged in) =====
+function renderAuthGate(opts) {
+  opts = opts || {};
+  const inviteCode = opts.inviteCode || '';
+  const inviteHint = inviteCode
+    ? '<div style="background:#E6F1FB;border:1px solid #B5D4F4;color:#185FA5;font-size:12px;padding:8px 12px;border-radius:6px;margin-bottom:14px;">您正在使用邀请链接,请输入收到邀请的邮箱</div>'
+    : '';
+  document.body.innerHTML = `
+    <div style="min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;background:#F1F0EC;font-family:'PingFang SC','Microsoft YaHei',Arial,sans-serif;padding:20px;">
+      <div style="background:white;border-radius:16px;padding:40px 36px;width:100%;max-width:380px;box-shadow:0 24px 80px rgba(0,0,0,.15);">
+        <h1 style="font-size:20px;font-weight:700;color:#185FA5;margin:0 0 6px;">DDP 跟踪 · 登录</h1>
+        <p style="font-size:13px;color:#666;margin:0 0 20px;">请输入邮箱以接收登录链接</p>
+        ${inviteHint}
+        <div id="auth-msg" style="display:none;padding:8px 12px;border-radius:6px;font-size:13px;margin-bottom:12px;"></div>
+        <input id="auth-email" type="email" placeholder="name@example.com"
+          style="width:100%;padding:10px 12px;border:1.5px solid #D5D5D0;border-radius:8px;font-size:14px;box-sizing:border-box;margin-bottom:12px;" />
+        <button id="auth-send" onclick="window.sendAuthLink()"
+          style="width:100%;padding:11px;background:#185FA5;color:white;border:none;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;">
+          发送登录链接
+        </button>
+        <p style="font-size:11px;color:#888;margin:12px 0 0;text-align:center;">
+          公司员工请使用 ${ALLOWED_DOMAIN} 邮箱<br>
+          外部访客请使用收到邀请的邮箱
+        </p>
+      </div>
+    </div>
+  `;
 }
 
-function getSession() {
-  return JSON.parse(localStorage.getItem(AUTH_KEY) || 'null');
+function showAuthMsg(text, kind) {
+  const el = document.getElementById('auth-msg');
+  if (!el) return;
+  el.style.display = 'block';
+  el.style.background = kind === 'err' ? '#FCEBEB' : '#E6F5EC';
+  el.style.color = kind === 'err' ? '#C0392B' : '#1A7A3E';
+  el.textContent = text;
 }
 
-function setSession(user) {
-  localStorage.setItem(AUTH_KEY, JSON.stringify({ username: user.username, role: user.role, loginAt: new Date().toISOString() }));
-}
+window.sendAuthLink = async function () {
+  const email = document.getElementById('auth-email').value.trim();
+  if (!email) { showAuthMsg('请输入邮箱', 'err'); return; }
+  const inviteCode = getInviteCode();
+  const isCompany = email.toLowerCase().endsWith(ALLOWED_DOMAIN);
 
-function clearSession() {
-  localStorage.removeItem(AUTH_KEY);
-}
-
-function simpleHash(str) {
-  // 简单哈希，防止明文存储密码（仅示意，实际部署建议后端）
-  let h = 0;
-  for (let i = 0; i < str.length; i++) {
-    h = ((h << 5) - h) + str.charCodeAt(i);
-    h = h & h;
-  }
-  return 'h' + Math.abs(h).toString(36);
-}
-
-function showLoginScreen() {
-  document.getElementById('login-screen').classList.remove('hide');
-  document.getElementById('login-form').style.display = 'flex';
-  document.getElementById('login-form').style.flexDirection = 'column';
-  document.getElementById('login-form').style.gap = '14px';
-  document.getElementById('setup-panel').style.display = 'none';
-  document.getElementById('login-error-msg').classList.remove('show');
-  document.getElementById('login-password').value = '';
-  document.getElementById('login-username').value = '';
-  document.getElementById('login-username').focus();
-  // 预填充已保存的API地址
-  const savedApi = localStorage.getItem('ddp_api_base') || '';
-  if (document.getElementById('login-api-url')) document.getElementById('login-api-url').value = savedApi;
-  // 始终显示设置入口
-  document.getElementById('login-setup-link').style.display = 'block';
-}
-
-function showSetupPanel(forceReset) {
-  const users = getUsers();
-  if (users.length > 0 && !forceReset) {
-    // 已有用户：提示确认是否重置
-    if (!confirm('检测到已有用户数据。点击"确定"将清空所有用户并重新设置管理员账号（数据不受影响）。')) {
-      return;
-    }
-  }
-  // 清空所有认证数据
-  clearSession();
-  saveUsers([]);
-  document.getElementById('login-form').style.display = 'none';
-  document.getElementById('setup-panel').style.display = 'block';
-  document.getElementById('setup-username').value = '';
-  document.getElementById('setup-password').value = '';
-  document.getElementById('setup-password2').value = '';
-  document.getElementById('setup-error-msg').classList.remove('show');
-  document.getElementById('setup-error-msg').textContent = '';
-  // 预填充已保存的API地址
-  const savedApi = localStorage.getItem('ddp_api_base') || '';
-  if (document.getElementById('setup-api-url')) document.getElementById('setup-api-url').value = savedApi;
-  document.getElementById('setup-username').focus();
-}
-
-function showLoginPanel() {
-  document.getElementById('setup-panel').style.display = 'none';
-  document.getElementById('login-form').style.display = 'flex';
-  showLoginScreen();
-}
-
-function performSetup() {
-  const username = document.getElementById('setup-username').value.trim();
-  const password = document.getElementById('setup-password').value;
-  const password2 = document.getElementById('setup-password2').value;
-  const err = document.getElementById('setup-error-msg');
-
-  if (!username) { err.textContent = '用户名不能为空'; err.classList.add('show'); return; }
-  if (password.length < 4) { err.textContent = '密码至少4位'; err.classList.add('show'); return; }
-  if (password !== password2) { err.textContent = '两次密码不一致'; err.classList.add('show'); return; }
-
-  const users = getUsers();
-  if (users.find(u => u.username === username)) { err.textContent = '用户名已存在'; err.classList.add('show'); return; }
-
-  users.push({ username, passwordHash: simpleHash(password), role: 'admin' });
-  saveUsers(users);
-
-  // 保存 API 地址（如有）
-  const apiUrl = document.getElementById('setup-api-url')?.value?.trim();
-  const clearApi = document.getElementById('setup-clear-api')?.checked;
-  if (clearApi) {
-    localStorage.removeItem('ddp_api_base');
-  } else if (apiUrl) {
-    localStorage.setItem('ddp_api_base', apiUrl);
+  if (!isCompany && !inviteCode) {
+    showAuthMsg('非公司邮箱必须通过邀请链接登录', 'err');
+    return;
   }
 
-  setSession({ username, role: 'admin' });
-  document.getElementById('login-screen').classList.add('hide');
-  bootApp();
-}
+  if (inviteCode && !isCompany) {
+    const { data: ok, error: vErr } = await sb.rpc('validate_invite', { p_code: inviteCode, p_email: email });
+    if (vErr || !ok) { showAuthMsg('邀请码无效、已使用或邮箱不匹配', 'err'); return; }
+  }
 
-function performLogin() {
-  const username = document.getElementById('login-username').value.trim();
-  const password = document.getElementById('login-password').value;
-  const err = document.getElementById('login-error-msg');
+  const btn = document.getElementById('auth-send');
+  btn.disabled = true; btn.textContent = '发送中...';
+  const { error } = await sb.auth.signInWithOtp({
+    email,
+    options: { emailRedirectTo: window.location.href },
+  });
+  btn.disabled = false; btn.textContent = '发送登录链接';
+  if (error) { showAuthMsg(error.message, 'err'); return; }
+  showAuthMsg('已发送登录链接到 ' + email, 'ok');
+};
 
-  if (!username || !password) { err.textContent = '请输入用户名和密码'; err.classList.add('show'); return; }
-
-  // 保存/更新 API 地址（如填入）
-  const apiUrl = document.getElementById('login-api-url')?.value?.trim();
-  if (apiUrl) localStorage.setItem('ddp_api_base', apiUrl);
-
-  const users = getUsers();
-  const user = users.find(u => u.username === username && u.passwordHash === simpleHash(password));
-  if (!user) { err.textContent = '用户名或密码错误'; err.classList.add('show'); return; }
-
-  setSession(user);
-  document.getElementById('login-screen').classList.add('hide');
-  bootApp();
-}
-
-function performLogout() {
-  clearSession();
-  showLoginScreen();
-}
-
-// 回车登录
-document.addEventListener('DOMContentLoaded', function() {
-  document.getElementById('login-password')?.addEventListener('keypress', function(e) { if (e.key === 'Enter') performLogin(); });
-  document.getElementById('login-username')?.addEventListener('keypress', function(e) { if (e.key === 'Enter') performLogin(); });
-  document.getElementById('setup-password2')?.addEventListener('keypress', function(e) { if (e.key === 'Enter') performSetup(); });
-});
+window.signOut = async function () {
+  await sb.auth.signOut();
+  location.replace(location.origin + location.pathname);
+};
 
 // ===== 数据结构 =====
 const NODES = [
@@ -705,329 +645,86 @@ const STATUS_CLASS = {
   exception: 'status-exception',
 };
 
-// ===== 示例数据 =====
-function genId() { return Date.now().toString(36) + Math.random().toString(36).substr(2, 5); }
-
-const sampleData = [
-  {
-    id: genId(),
-    booking: 'SZ-YT-20250508-001',
-    container: 'MSCU8765432',
-    seal: 'SL20250501',
-    tempContainer: 'TMP-YT-2025-0501',
-    shipper: '深圳市星链智运科技有限公司',
-    shipperAddr: '深圳市南山区科技园',
-    consignee: 'ABC IMPORT CORP',
-    consigneeAddr: '123 Commerce St, Los Angeles, CA 90001',
-    factoryName: '深圳市金鑫电子厂',
-    factoryAddr: '深圳市龙华区大浪街道金鑫工业园A栋',
-    factoryContact: '李经理 138-0755-0001',
-    originPort: '深圳盐田',
-    destPort: '洛杉矶',
-    destCity: 'Los Angeles, CA',
-    destAddr: '456 Logistics Blvd, LA, CA',
-    goods: '电子配件 / Electronic Components',
-    ctns: '240',
-    volume: '14.5',
-    weight: '4200',
-    dept: '操作部',
-    nodes: {
-      booking: { status: 'done', date: '2025-05-08', note: '已确认舱位' },
-      truck_pickup: { status: 'done', date: '2025-05-10', note: '' },
-      stuffing: { status: 'done', date: '2025-05-10', note: '装柜完成' },
-      cy_entry: { status: 'done', date: '2025-05-11', note: '' },
-      exp_customs: { status: 'done', date: '2025-05-11', note: '' },
-      exp_clearance: { status: 'done', date: '2025-05-11', note: '放行' },
-      sailing: { status: 'done', date: '2025-05-12', note: '' },
-      eta: { status: 'progress', date: '', note: 'ETA: 2025-05-28' },
-      ocean_track: { status: 'progress', date: '', note: '航行中' },
-      arrival: { status: 'pending', date: '', note: '' },
-      arrival_date: { status: 'pending', date: '', note: '' },
-      imp_customs: { status: 'pending', date: '', note: '' },
-      imp_clearance: { status: 'pending', date: '', note: '' },
-      dray: { status: 'pending', date: '', note: '' },
-      delivery: { status: 'pending', date: '', note: '' },
-      pod: { status: 'pending', date: '', note: '' },
-    }
-  },
-  {
-    id: genId(),
-    booking: 'SZ-YT-20250505-002',
-    container: 'CMAU2345678',
-    seal: 'SL20250502',
-    tempContainer: 'TMP-YT-2025-0502',
-    shipper: '深圳市星链智运科技有限公司',
-    shipperAddr: '深圳市南山区科技园',
-    consignee: 'XYZ TRADING LLC',
-    consigneeAddr: '789 Harbor Dr, New York, NY 10001',
-    factoryName: '东莞华昌玩具厂',
-    factoryAddr: '东莞市长安镇乌沙社区振安路22号',
-    factoryContact: '王主管 139-0769-1234',
-    originPort: '深圳盐田',
-    destPort: '纽约',
-    destCity: 'New York, NY',
-    destAddr: '789 Harbor Dr, NY, NY 10001',
-    goods: '家居用品 / Home Goods',
-    ctns: '380',
-    volume: '22.0',
-    weight: '6800',
-    dept: '报关部',
-    nodes: {
-      booking: { status: 'done', date: '2025-05-05', note: '' },
-      truck_pickup: { status: 'done', date: '2025-05-06', note: '' },
-      stuffing: { status: 'done', date: '2025-05-07', note: '' },
-      cy_entry: { status: 'done', date: '2025-05-08', note: '' },
-      exp_customs: { status: 'done', date: '2025-05-08', note: '' },
-      exp_clearance: { status: 'done', date: '2025-05-08', note: '正常放行' },
-      sailing: { status: 'done', date: '2025-05-09', note: '' },
-      eta: { status: 'progress', date: '', note: 'ETA: 2025-06-05' },
-      ocean_track: { status: 'progress', date: '', note: '航行中 · 太平洋' },
-      arrival: { status: 'pending', date: '', note: '' },
-      arrival_date: { status: 'pending', date: '', note: '' },
-      imp_customs: { status: 'pending', date: '', note: '' },
-      imp_clearance: { status: 'pending', date: '', note: '' },
-      dray: { status: 'pending', date: '', note: '' },
-      delivery: { status: 'pending', date: '', note: '' },
-      pod: { status: 'pending', date: '', note: '' },
-    }
-  },
-  {
-    id: genId(),
-    booking: 'NB-NG-20250420-003',
-    container: 'HLCU3456789',
-    seal: 'SL20250415',
-    tempContainer: 'TMP-NB-2025-0415',
-    shipper: '华东供应链（苏州）有限公司',
-    shipperAddr: '苏州市昆山市环城西路239号',
-    consignee: 'GLOBAL HOME DEPOT INC',
-    consigneeAddr: '500 Supply Ave, Oakland, CA 94601',
-    factoryName: '苏州蓝星家具有限公司',
-    factoryAddr: '苏州市吴江区松陵镇工业园区蓝星路8号',
-    factoryContact: '陈厂长 136-5120-8888',
-    originPort: '宁波',
-    destPort: '奥克兰',
-    destCity: 'Oakland, CA',
-    destAddr: '500 Supply Ave, Oakland, CA',
-    goods: '家具 / Furniture',
-    ctns: '120',
-    volume: '35.0',
-    weight: '9500',
-    dept: '客服部',
-    nodes: {
-      booking: { status: 'done', date: '2025-04-20', note: '' },
-      truck_pickup: { status: 'done', date: '2025-04-22', note: '' },
-      stuffing: { status: 'done', date: '2025-04-23', note: '' },
-      cy_entry: { status: 'done', date: '2025-04-24', note: '' },
-      exp_customs: { status: 'done', date: '2025-04-24', note: '' },
-      exp_clearance: { status: 'done', date: '2025-04-24', note: '' },
-      sailing: { status: 'done', date: '2025-04-25', note: '' },
-      eta: { status: 'done', date: '2025-04-25', note: 'ETA: 2025-05-20' },
-      ocean_track: { status: 'done', date: '2025-05-20', note: '已到港' },
-      arrival: { status: 'done', date: '2025-05-20', note: '' },
-      arrival_date: { status: 'done', date: '2025-05-20', note: '实际到港' },
-      imp_customs: { status: 'done', date: '2025-05-22', note: '' },
-      imp_clearance: { status: 'done', date: '2025-05-23', note: '清关完成' },
-      dray: { status: 'done', date: '2025-05-24', note: '' },
-      delivery: { status: 'progress', date: '', note: '派送中' },
-      pod: { status: 'pending', date: '', note: '' },
-    }
-  },
-  {
-    id: genId(),
-    booking: 'SH-SEA-20250501-004',
-    container: 'OOLU4567890',
-    seal: 'SL20250428',
-    tempContainer: 'TMP-SH-2025-0501',
-    shipper: '上海出口贸易有限公司',
-    shipperAddr: '上海市浦东新区外高桥',
-    consignee: 'PACIFIC TRADERS INC',
-    consigneeAddr: '200 Port Way, Seattle, WA 98101',
-    factoryName: '杭州丝绸之路纺织厂',
-    factoryAddr: '杭州市余杭区乔司镇丝绸路88号',
-    factoryContact: '张总 137-0571-6688',
-    originPort: '上海',
-    destPort: '西雅图',
-    destCity: 'Seattle, WA',
-    destAddr: '200 Port Way, Seattle, WA',
-    goods: '纺织品 / Textiles',
-    ctns: '500',
-    volume: '28.0',
-    weight: '5200',
-    dept: '操作部',
-    nodes: {
-      booking: { status: 'done', date: '2025-05-01', note: '' },
-      truck_pickup: { status: 'done', date: '2025-05-03', note: '' },
-      stuffing: { status: 'done', date: '2025-05-04', note: '' },
-      cy_entry: { status: 'done', date: '2025-05-05', note: '' },
-      exp_customs: { status: 'delayed', date: '2025-05-06', note: '海关查验中' },
-      exp_clearance: { status: 'pending', date: '', note: '等待放行' },
-      sailing: { status: 'pending', date: '', note: '待报关完成' },
-      eta: { status: 'pending', date: '', note: 'ETA: 待定' },
-      ocean_track: { status: 'pending', date: '', note: '' },
-      arrival: { status: 'pending', date: '', note: '' },
-      arrival_date: { status: 'pending', date: '', note: '' },
-      imp_customs: { status: 'pending', date: '', note: '' },
-      imp_clearance: { status: 'pending', date: '', note: '' },
-      dray: { status: 'pending', date: '', note: '' },
-      delivery: { status: 'pending', date: '', note: '' },
-      pod: { status: 'pending', date: '', note: '' },
-    }
-  },
-  {
-    id: genId(),
-    booking: 'YT-LB-20250410-005',
-    container: 'EGHU5678901',
-    seal: 'SL20250408',
-    tempContainer: 'TMP-YT-2025-0410',
-    shipper: '深圳市星链智运科技有限公司',
-    shipperAddr: '深圳市南山区科技园',
-    consignee: 'SUNSHINE IMPORTS LLC',
-    consigneeAddr: '800 Beach Blvd, Long Beach, CA 90802',
-    factoryName: '汕头澄海玩具城实业有限公司',
-    factoryAddr: '汕头市澄海区玩具工业园B区18号',
-    factoryContact: '黄老板 135-0754-5566',
-    originPort: '深圳盐田',
-    destPort: '长滩',
-    destCity: 'Long Beach, CA',
-    destAddr: '800 Beach Blvd, Long Beach, CA',
-    goods: '玩具 / Toys',
-    ctns: '600',
-    volume: '40.0',
-    weight: '8000',
-    dept: '财务部',
-    nodes: {
-      booking: { status: 'done', date: '2025-04-10', note: '' },
-      truck_pickup: { status: 'done', date: '2025-04-12', note: '' },
-      stuffing: { status: 'done', date: '2025-04-13', note: '' },
-      cy_entry: { status: 'done', date: '2025-04-14', note: '' },
-      exp_customs: { status: 'done', date: '2025-04-14', note: '' },
-      exp_clearance: { status: 'done', date: '2025-04-14', note: '' },
-      sailing: { status: 'done', date: '2025-04-15', note: '' },
-      eta: { status: 'done', date: '2025-04-15', note: 'ETA: 2025-05-10' },
-      ocean_track: { status: 'done', date: '2025-05-10', note: '' },
-      arrival: { status: 'done', date: '2025-05-10', note: '' },
-      arrival_date: { status: 'done', date: '2025-05-10', note: '' },
-      imp_customs: { status: 'done', date: '2025-05-12', note: '' },
-      imp_clearance: { status: 'done', date: '2025-05-13', note: '' },
-      dray: { status: 'done', date: '2025-05-14', note: '' },
-      delivery: { status: 'done', date: '2025-05-15', note: '' },
-      pod: { status: 'done', date: '2025-05-15', note: 'POD已签收' },
-    }
-  },
-];
-
-// ===== 路径一：API配置 =====
-const API_BASE = localStorage.getItem('ddp_api_base') || '';
-const USE_API = !!API_BASE;
-let _syncStatus = 'offline'; // 'ok' | 'loading' | 'error' | 'offline'
-
-// ===== 同步状态指示器 =====
-function setSyncStatus(status, msg) {
-  _syncStatus = status;
-  const el = document.getElementById('sync-indicator');
-  const txt = document.getElementById('sync-text');
-  if (!el) return;
-  el.className = 'sync-indicator show';
-  el.classList.remove('sync-ok', 'sync-loading', 'sync-error', 'sync-offline');
-  if (status === 'ok') el.classList.add('sync-ok');
-  else if (status === 'loading') el.classList.add('sync-loading');
-  else if (status === 'error') el.classList.add('sync-error');
-  else el.classList.add('sync-offline');
-  if (txt) txt.textContent = msg || (status === 'ok' ? '已同步' : status === 'loading' ? '同步中' : status === 'error' ? '同步失败' : '离线模式');
-}
-
-// ===== API 调用层 =====
-async function apiCall(method, path, body) {
-  if (!USE_API) return null;
-  const url = API_BASE + path;
-  const opts = {
-    method,
-    headers: { 'Content-Type': 'application/json' },
-  };
-  if (body) opts.body = JSON.stringify(body);
-  try {
-    const resp = await fetch(url, opts);
-    if (!resp.ok) {
-      const err = await resp.json().catch(() => ({ error: `HTTP ${resp.status}` }));
-      throw new Error(err.error || `HTTP ${resp.status}`);
-    }
-    const result = await resp.json();
-    if (result.code !== 0) throw new Error(result.error || '未知错误');
-    return result.data;
-  } catch (e) {
-    console.error('API Error:', e.message);
-    return null;
-  }
-}
-
-// ===== 数据存取（支持 localStorage 离线降级）=====
+// ===== 数据层 (Supabase) =====
 let shipmentData = [];
-let _dataLoaded = false;
+
+function dbToFront(row) {
+  return {
+    id: row.id,
+    booking: row.booking,
+    container: row.container,
+    seal: row.details?.seal,
+    shipper: row.shipper,
+    shipperAddr: row.details?.shipperAddr,
+    consignee: row.consignee,
+    consigneeAddr: row.details?.consigneeAddr,
+    factoryName: row.details?.factoryName,
+    factoryAddr: row.details?.factoryAddr,
+    factoryContact: row.details?.factoryContact,
+    tempContainer: row.details?.tempContainer,
+    originPort: row.origin_port,
+    destPort: row.dest_port,
+    destCity: row.details?.destCity,
+    destAddr: row.details?.destAddr,
+    goods: row.goods,
+    ctns: row.ctns,
+    volume: row.volume,
+    weight: row.weight,
+    dept: row.dept,
+    nodes: row.nodes || {},
+  };
+}
+
+function frontToDb(record) {
+  return {
+    booking: record.booking,
+    container: record.container,
+    shipper: record.shipper,
+    consignee: record.consignee,
+    origin_port: record.originPort,
+    dest_port: record.destPort,
+    goods: record.goods,
+    ctns: Number(record.ctns) || 0,
+    volume: Number(record.volume) || 0,
+    weight: Number(record.weight) || 0,
+    dept: record.dept,
+    details: {
+      seal: record.seal,
+      shipperAddr: record.shipperAddr,
+      consigneeAddr: record.consigneeAddr,
+      factoryName: record.factoryName,
+      factoryAddr: record.factoryAddr,
+      factoryContact: record.factoryContact,
+      tempContainer: record.tempContainer,
+      destCity: record.destCity,
+      destAddr: record.destAddr,
+    },
+    nodes: record.nodes || {},
+  };
+}
 
 async function loadData() {
-  if (!USE_API) {
-    // 离线模式：使用 localStorage
-    const stored = localStorage.getItem('ddp_tracking_data');
-    shipmentData = stored ? JSON.parse(stored) : sampleData;
-    _dataLoaded = true;
-    setSyncStatus('offline', '本地模式');
-    return;
-  }
-
-  setSyncStatus('loading', '加载中...');
-  const data = await apiCall('GET', '/data');
-  
-  if (data && Array.isArray(data) && data.length > 0) {
-    shipmentData = data;
-    setSyncStatus('ok', '已同步');
-  } else {
-    // API有数据但为空，或首次使用
-    const stored = localStorage.getItem('ddp_tracking_data');
-    const local = stored ? JSON.parse(stored) : sampleData;
-    
-    // 如果本地有示例数据，尝试同步到云端
-    if (!data || data.length === 0) {
-      setSyncStatus('ok', '已连接');
-    }
-    
-    shipmentData = local;
-  }
-  _dataLoaded = true;
+  const { data, error } = await sb
+    .from('shipments')
+    .select('*')
+    .order('created_at', { ascending: false });
+  if (error) { console.error('[loadData]', error); return; }
+  shipmentData = (data || []).map(dbToFront);
 }
 
 async function saveDataToApi(record, action) {
-  if (!USE_API) {
-    localStorage.setItem('ddp_tracking_data', JSON.stringify(shipmentData));
-    return true;
-  }
-
-  setSyncStatus('loading', '保存中...');
-  let ok = false;
-
   if (action === 'add') {
-    ok = await apiCall('POST', '/data', record);
+    const { data, error } = await sb.from('shipments').insert(frontToDb(record)).select().single();
+    if (error) throw error;
+    return data.id;
   } else if (action === 'update') {
-    ok = await apiCall('PUT', `/data/${record.id}`, record);
+    const { error } = await sb.from('shipments').update(frontToDb(record)).eq('id', record.id);
+    if (error) throw error;
   } else if (action === 'delete') {
-    ok = await apiCall('DELETE', `/data/${record.id}`);
+    const { error } = await sb.from('shipments').delete().eq('id', record.id);
+    if (error) throw error;
   }
-
-  if (ok) {
-    setSyncStatus('ok', '已同步');
-  } else {
-    setSyncStatus('error', '同步失败');
-  }
-  return ok !== null;
 }
-
-// 页面初始化时检查 API 连接状态
-(function checkApiHealth() {
-  if (!USE_API) return;
-  apiCall('GET', '/health').then(ok => {
-    if (ok) setSyncStatus('ok', '已连接');
-    else setSyncStatus('error', '连接失败');
-  }).catch(() => setSyncStatus('error', '连接失败'));
-})();
 
 let currentFilter = 'all';
 let editId = null;
@@ -1302,7 +999,7 @@ async function saveRecord() {
   });
 
   const record = {
-    id: editId || genId(),
+    id: editId,
     booking: get('f-booking'),
     container: get('f-container'),
     seal: get('f-seal'),
@@ -1326,13 +1023,19 @@ async function saveRecord() {
     nodes,
   };
 
-  if (editId) {
-    const idx = shipmentData.findIndex(r => r.id === editId);
-    if (idx !== -1) shipmentData[idx] = record;
-    await saveDataToApi(record, 'update');
-  } else {
-    shipmentData.unshift(record);
-    await saveDataToApi(record, 'add');
+  try {
+    if (editId) {
+      await saveDataToApi(record, 'update');
+      const idx = shipmentData.findIndex(r => r.id === editId);
+      if (idx !== -1) shipmentData[idx] = record;
+    } else {
+      const newId = await saveDataToApi(record, 'add');
+      record.id = newId;
+      shipmentData.unshift(record);
+    }
+  } catch (e) {
+    alert('保存失败:' + e.message);
+    return;
   }
 
   closeModal();
@@ -1343,8 +1046,13 @@ async function saveRecord() {
 
 async function deleteRecord(id) {
   if (!confirm('确定要删除此条记录吗？')) return;
+  try {
+    await saveDataToApi({ id }, 'delete');
+  } catch (e) {
+    alert('删除失败:' + e.message);
+    return;
+  }
   shipmentData = shipmentData.filter(r => r.id !== id);
-  await saveDataToApi({ id }, 'delete');
   populateFilters();
   applyFilters();
 }
@@ -1378,65 +1086,7 @@ function exportTable() {
   link.click();
 }
 
-// ===== 用户管理 =====
-function openUserModal() {
-  document.getElementById('user-modal').classList.add('active');
-  renderUserList();
-}
-
-function closeUserModal() {
-  document.getElementById('user-modal').classList.remove('active');
-}
-
-function renderUserList() {
-  const users = getUsers();
-  const session = getSession();
-  const list = document.getElementById('user-list');
-  if (!users.length) {
-    list.innerHTML = '<div style="color:var(--text-muted);font-size:13px;text-align:center;padding:20px;">暂无其他用户</div>';
-    return;
-  }
-  list.innerHTML = users.map(u => `
-    <div class="user-item">
-      <div class="user-info">
-        <span class="user-name">${u.username}</span>
-        <span class="${u.role === 'admin' ? 'admin-badge' : 'user-badge'}">${u.role === 'admin' ? '管理员' : '普通用户'}</span>
-        ${u.username === session.username ? '<span style="font-size:11px;color:var(--text-muted);">(当前)</span>' : ''}
-      </div>
-      <div class="user-actions">
-        ${u.username !== session.username ? `<button class="icon-btn danger" onclick="deleteUser('${u.username}')" title="删除">🗑️</button>` : ''}
-      </div>
-    </div>
-  `).join('');
-}
-
-function addUser() {
-  const name = document.getElementById('new-user-name').value.trim();
-  const pass = document.getElementById('new-user-pass').value;
-  const role = document.getElementById('new-user-role').value;
-  if (!name) { alert('用户名不能为空'); return; }
-  if (pass.length < 4) { alert('密码至少4位'); return; }
-  const users = getUsers();
-  if (users.find(u => u.username === name)) { alert('用户名已存在'); return; }
-  users.push({ username: name, passwordHash: simpleHash(pass), role });
-  saveUsers(users);
-  document.getElementById('new-user-name').value = '';
-  document.getElementById('new-user-pass').value = '';
-  renderUserList();
-}
-
-function deleteUser(username) {
-  if (!confirm(`确定删除用户「${username}」吗？`)) return;
-  let users = getUsers();
-  users = users.filter(u => u.username !== username);
-  saveUsers(users);
-  renderUserList();
-}
-
-// 点击遮罩关闭用户管理
-document.getElementById('user-modal').addEventListener('click', function(e) {
-  if (e.target === this) closeUserModal();
-});
+// ===== 用户管理 已迁移至 Supabase =====
 
 // ===== 事件绑定 =====
 ['filter-shipper','filter-origin','filter-dest','filter-dept','filter-date-field'].forEach(id => {
@@ -1463,33 +1113,16 @@ function debounce(fn, delay) {
 // ===== 初始化 =====
 function initApp() {
   document.getElementById('update-time').textContent = new Date().toLocaleString('zh-CN');
-  
+
   // 更新数据来源标注
   const note = document.getElementById('data-source-note');
   if (note) {
-    if (USE_API) {
-      note.textContent = '☁️ 数据同步至腾讯文档微表格（云端协同）';
-      note.style.color = '#185FA5';
-    } else {
-      note.textContent = '📱 本地存储模式（各浏览器独立，可导出CSV备份）';
-      note.style.color = '';
-    }
+    note.textContent = '☁️ 数据同步至 Supabase 云端';
+    note.style.color = '#185FA5';
   }
-  
+
   populateFilters();
   applyFilters();
-
-  // 用户信息栏
-  const session = getSession();
-  if (session) {
-    const userInfoBar = document.getElementById('user-info-bar');
-    const btnManage = document.getElementById('btn-user-manage');
-    userInfoBar.style.display = 'inline';
-    userInfoBar.textContent = `👤 ${session.username}`;
-    if (session.role === 'admin') {
-      btnManage.style.display = 'inline-flex';
-    }
-  }
 }
 
 async function bootApp() {
@@ -1497,7 +1130,7 @@ async function bootApp() {
   const overlay = document.getElementById('loading-overlay');
   const loadingText = document.getElementById('loading-text');
   overlay.classList.add('show');
-  loadingText.textContent = USE_API ? '正在连接服务器...' : '正在加载本地数据...';
+  loadingText.textContent = '正在加载数据...';
 
   // 异步加载数据
   await loadData();
@@ -1507,18 +1140,65 @@ async function bootApp() {
   overlay.classList.remove('show');
 }
 
-// 页面加载时检查登录状态，然后启动应用
-(function checkAuth() {
-  const session = getSession();
-  const users = getUsers();
-  if (!session || !users.find(u => u.username === session.username)) {
-    // 未登录，显示登录页
-    showLoginScreen();
-  } else {
-    // 已登录，直接进入
-    document.getElementById('login-screen').classList.add('hide');
-    bootApp();
+function injectUserBadge() {
+  const header = document.querySelector('.app-header .header-actions');
+  if (!header || document.getElementById('auth-user-badge')) return;
+  const span = document.createElement('span');
+  span.id = 'auth-user-badge';
+  span.style.cssText = 'color:white;font-size:12px;padding:4px 10px;border:1px solid rgba(255,255,255,.3);border-radius:6px;cursor:pointer;margin-right:6px;';
+  span.textContent = '@' + _authUser.email.split('@')[0] + ' · 退出';
+  span.onclick = () => window.signOut();
+  header.insertBefore(span, header.firstChild);
+}
+
+function applyViewerRestrictions() {
+  // 顶部加只读提示
+  const banner = document.createElement('div');
+  banner.style.cssText = 'background:#FFF3E0;color:#C06800;padding:8px 16px;font-size:12px;text-align:center;border-bottom:1px solid #F5D0A0;';
+  banner.textContent = '只读模式 — 您是受邀访客,无法编辑或新增';
+  document.body.insertBefore(banner, document.body.firstChild);
+
+  // 隐藏所有写入按钮
+  const style = document.createElement('style');
+  style.textContent = `
+    .btn-primary, .action-btns, [onclick*="openAddModal"], [onclick*="editRecord"], [onclick*="deleteRecord"] { display: none !important; }
+    tbody tr { cursor: default !important; }
+  `;
+  document.head.appendChild(style);
+
+  // 阻止双击编辑
+  document.addEventListener('dblclick', (e) => {
+    if (e.target.closest('tr')) e.stopPropagation();
+  }, true);
+}
+
+// 页面加载:走 Supabase 流程
+(async function boot() {
+  const { data: { session } } = await sb.auth.getSession();
+  const inviteCode = getInviteCode();
+
+  // 处理邀请回调:登录成功 + URL 有 invite 参数 → consume
+  if (session && inviteCode) {
+    await sb.rpc('consume_invite', { p_code: inviteCode });
+    const { data: refreshed } = await sb.auth.refreshSession();
+    if (refreshed?.session) {
+      _authUser = refreshed.session.user;
+      _authRole = refreshed.session.user.app_metadata?.role ?? null;
+    }
+    clearInviteFromUrl();
+  } else if (session) {
+    _authUser = session.user;
+    _authRole = session.user.app_metadata?.role ?? null;
   }
+
+  if (!_authUser || !_authRole) {
+    renderAuthGate({ inviteCode });
+    return;
+  }
+
+  await bootApp();
+  injectUserBadge();
+  if (_authRole === 'viewer') applyViewerRestrictions();
 })();
 
 // 点击遮罩关闭
@@ -1527,87 +1207,7 @@ document.getElementById('edit-modal').addEventListener('click', function(e) {
 });
 </script>
 
-<!-- ===== 登录页 ===== -->
-<div class="login-overlay" id="login-screen">
-  <div class="login-box">
-    <div class="login-logo">🚢</div>
-    <div class="login-title">DDP 中美物流跟踪表</div>
-    <div class="login-sub">星链智运 · 全链路协同追踪平台 · 支持云端同步</div>
-
-    <div class="login-form" id="login-form">
-      <div id="login-api-section" style="margin-bottom:12px; padding:8px 10px; background:#E6F1FB; border-radius:8px; border:1px solid #B5D4F4;">
-        <div style="font-size:11px; color:var(--blue); font-weight:600; margin-bottom:4px;">☁️ 云端同步模式</div>
-        <input type="url" id="login-api-url" class="login-input" style="padding-left:12px; font-size:12px;" placeholder="腾讯云函数地址（可选）" title="留空则使用本地模式">
-      </div>
-      <div class="login-input-wrap">
-        <span class="login-input-icon">👤</span>
-        <input type="text" class="login-input" id="login-username" placeholder="请输入用户名" autocomplete="off">
-      </div>
-      <div class="login-input-wrap">
-        <span class="login-input-icon">🔒</span>
-        <input type="password" class="login-input" id="login-password" placeholder="请输入密码">
-      </div>
-      <div class="login-error" id="login-error-msg">用户名或密码错误</div>
-      <button class="login-btn" onclick="performLogin()">登 录</button>
-      <div class="login-link" id="login-setup-link" onclick="showSetupPanel()">🔑 首次使用 / 忘记密码？点此设置 →</div>
-    </div>
-
-    <!-- 设置管理员账号 -->
-    <div id="setup-panel" style="display:none; text-align:left;">
-      <div style="font-size:14px; font-weight:600; color:var(--blue); margin-bottom:12px;">🔐 设置管理员账号</div>
-      <div id="api-config-section" style="margin-bottom:14px; padding:10px; background:#FAFAF8; border-radius:8px; border:1px solid var(--border);">
-        <div style="font-size:12px; font-weight:600; color:var(--text-muted); margin-bottom:6px;">☁️ 腾讯云函数地址（可选）</div>
-        <div style="font-size:11px; color:var(--text-muted); margin-bottom:6px;">留空则使用本地存储；填入则启用云端同步</div>
-        <input type="url" id="setup-api-url" class="login-input" style="padding-left:12px; font-size:12px;" placeholder="https://service-xxxx.gz.apigw.tencentcs.com/...">
-        <div style="margin-top:6px; display:flex; align-items:center; gap:8px;">
-          <label style="display:flex; align-items:center; gap:4px; font-size:11px; color:var(--text-muted); cursor:pointer;">
-            <input type="checkbox" id="setup-clear-api" style="cursor:pointer;"> 清除已有API地址
-          </label>
-        </div>
-      </div>
-      <div class="login-form">
-        <div class="login-input-wrap">
-          <span class="login-input-icon">👤</span>
-          <input type="text" class="login-input" id="setup-username" placeholder="设置管理员用户名" autocomplete="off">
-        </div>
-        <div class="login-input-wrap">
-          <span class="login-input-icon">🔒</span>
-          <input type="password" class="login-input" id="setup-password" placeholder="设置管理员密码">
-        </div>
-        <div class="login-input-wrap">
-          <span class="login-input-icon">🔒</span>
-          <input type="password" class="login-input" id="setup-password2" placeholder="确认密码">
-        </div>
-        <div class="login-error" id="setup-error-msg"></div>
-        <button class="login-btn" onclick="performSetup()">确认创建</button>
-        <div class="login-link" onclick="showLoginPanel()">← 返回登录</div>
-      </div>
-    </div>
-  </div>
-</div>
-
-<!-- ===== 用户管理弹窗（管理员专用）===== -->
-<div class="modal-overlay" id="user-modal">
-  <div class="modal" style="max-width:520px;">
-    <div class="modal-header">
-      <div class="modal-title">👥 用户管理</div>
-      <button class="modal-close" onclick="closeUserModal()">&times;</button>
-    </div>
-    <div class="modal-body">
-      <div class="form-section-title" style="margin-bottom:14px;">当前用户列表</div>
-      <div class="user-list" id="user-list"></div>
-      <div class="add-user-row">
-        <input type="text" id="new-user-name" placeholder="新增用户名">
-        <input type="password" id="new-user-pass" placeholder="密码">
-        <select id="new-user-role">
-          <option value="user">普通用户</option>
-          <option value="admin">管理员</option>
-        </select>
-        <button class="add-user-btn" onclick="addUser()">添加</button>
-      </div>
-    </div>
-  </div>
-</div>
+<!-- ===== 登录页 / 用户管理 已迁移至 Supabase ===== -->
 
 </body>
 </html>
