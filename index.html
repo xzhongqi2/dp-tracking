@@ -535,6 +535,12 @@ function clearInviteFromUrl() {
   history.replaceState({}, '', url);
 }
 
+function errorText(error, fallback) {
+  if (!error) return fallback || '操作失败';
+  if (typeof error === 'string') return error;
+  return error.message || error.details || error.hint || error.code || fallback || '操作失败';
+}
+
 // ===== Auth gate UI (replaces body when not logged in) =====
 function renderAuthGate(opts) {
   opts = opts || {};
@@ -586,7 +592,8 @@ window.sendAuthLink = async function () {
 
   if (inviteCode && !isCompany) {
     const { data: ok, error: vErr } = await sb.rpc('validate_invite', { p_code: inviteCode, p_email: email });
-    if (vErr || !ok) { showAuthMsg('邀请码无效、已使用或邮箱不匹配', 'err'); return; }
+    if (vErr) { showAuthMsg(errorText(vErr, '邀请码校验失败'), 'err'); return; }
+    if (!ok) { showAuthMsg('邀请码无效、已使用或邮箱不匹配', 'err'); return; }
   }
 
   const btn = document.getElementById('auth-send');
@@ -596,7 +603,7 @@ window.sendAuthLink = async function () {
     options: { emailRedirectTo: window.location.href },
   });
   btn.disabled = false; btn.textContent = '发送登录链接';
-  if (error) { showAuthMsg(error.message, 'err'); return; }
+  if (error) { showAuthMsg(errorText(error, '登录链接发送失败'), 'err'); return; }
   showAuthMsg('已发送登录链接到 ' + email, 'ok');
 };
 
@@ -1179,7 +1186,13 @@ function applyViewerRestrictions() {
 
   // 处理邀请回调:登录成功 + URL 有 invite 参数 → consume
   if (session && inviteCode) {
-    await sb.rpc('consume_invite', { p_code: inviteCode });
+    const { error: consumeErr } = await sb.rpc('consume_invite', { p_code: inviteCode });
+    if (consumeErr) {
+      await sb.auth.signOut();
+      renderAuthGate({ inviteCode });
+      showAuthMsg(errorText(consumeErr, '邀请码使用失败，请确认邮箱和邀请链接一致'), 'err');
+      return;
+    }
     const { data: refreshed } = await sb.auth.refreshSession();
     if (refreshed?.session) {
       _authUser = refreshed.session.user;
