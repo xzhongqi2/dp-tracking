@@ -539,7 +539,9 @@ function errorText(error, fallback) {
   if (!error) return fallback || '操作失败';
   if (typeof error === 'string') return error;
   const raw = error.message || error.details || error.hint || error.code || '';
-  if (!raw || raw === '{}' || raw === '[object Object]') return fallback || '操作失败';
+  if (!raw || raw === '{}' || raw === '[object Object]') {
+    return fallback || '操作失败，请确认 Supabase 登录钩子修复 SQL 已执行';
+  }
   return raw;
 }
 
